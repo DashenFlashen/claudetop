@@ -77,9 +77,17 @@ func SendLiteralKey(id string, key string) error {
 
 // LiveSessions returns IDs of all ct- prefixed tmux sessions.
 func LiveSessions() ([]string, error) {
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, nil // no sessions is not an error
+		// tmux returns non-zero when there are no sessions — this is not an error
+		outStr := strings.TrimSpace(string(out))
+		if strings.Contains(outStr, "no server running") ||
+			strings.Contains(outStr, "no sessions") ||
+			outStr == "" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("tmux list-sessions: %w\n%s", err, out)
 	}
 
 	var ids []string

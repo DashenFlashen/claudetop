@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"claudetop/internal/config"
 	"claudetop/internal/session"
 )
 
@@ -15,8 +16,7 @@ type State struct {
 }
 
 func path() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claudetop", "state.json")
+	return filepath.Join(config.Dir(), "state.json")
 }
 
 // Load reads state from disk. Returns empty state if file is missing.

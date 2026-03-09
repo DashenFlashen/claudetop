@@ -18,7 +18,10 @@ type GeneralConfig struct {
 
 // Dir returns the ~/.claudetop directory path.
 func Dir() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(fmt.Sprintf("claudetop: cannot determine home directory: %v", err))
+	}
 	return filepath.Join(home, ".claudetop")
 }
 

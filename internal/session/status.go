@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+const (
+	startupGracePeriod    = 10 * time.Second
+	activeOutputWindow    = 3 * time.Second
+	stuckSilenceThreshold = 2 * time.Minute
+)
+
 var (
 	needsInputPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`\?\s*$`),
@@ -42,7 +48,7 @@ func lastNLines(text string, n int) string {
 // current is the previously detected status (needed for stuck detection).
 func Detect(paneOutput string, lastOutputAt time.Time, createdAt time.Time, current Status) Status {
 	age := time.Since(createdAt)
-	if age < 10*time.Second {
+	if age < startupGracePeriod {
 		return StatusStarting
 	}
 
@@ -54,7 +60,7 @@ func Detect(paneOutput string, lastOutputAt time.Time, createdAt time.Time, curr
 		}
 	}
 
-	if time.Since(lastOutputAt) < 3*time.Second {
+	if time.Since(lastOutputAt) < activeOutputWindow {
 		return StatusWorking
 	}
 
@@ -70,7 +76,7 @@ func Detect(paneOutput string, lastOutputAt time.Time, createdAt time.Time, curr
 		}
 	}
 
-	if current == StatusWorking && time.Since(lastOutputAt) > 2*time.Minute {
+	if current == StatusWorking && time.Since(lastOutputAt) > stuckSilenceThreshold {
 		return StatusStuck
 	}
 
