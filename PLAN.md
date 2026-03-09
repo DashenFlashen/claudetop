@@ -8,7 +8,7 @@
 - [x] Task 4: tmux manager
 - [x] Task 5: State store
 - [x] Task 6: Status detector
-- [ ] Task 7: Status bar component
+- [x] Task 7: Status bar component
 - [ ] Task 8: Sidebar component
 - [ ] Task 9: Main viewport component
 - [ ] Task 10: Help overlay
