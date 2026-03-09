@@ -11,7 +11,7 @@
 - [x] Task 7: Status bar component
 - [x] Task 8: Sidebar component
 - [x] Task 9: Main viewport component
-- [ ] Task 10: Help overlay
+- [x] Task 10: Help overlay
 - [ ] Task 11: New session flow
 - [ ] Task 12: Main app model
 - [ ] Task 13: Main entry point
