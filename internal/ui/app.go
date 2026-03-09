@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,9 +32,7 @@ type sessionSpawnedMsg struct {
 	sess *session.Session
 }
 
-type sessionClosedMsg struct {
-	idx int
-}
+type sessionClosedMsg struct{ sessionID string }
 
 type errMsg struct{ err error }
 
@@ -148,21 +147,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionClosedMsg:
-		idx := msg.idx
-		if idx < 0 || idx >= len(m.sessions) {
-			return m, nil
-		}
-		m.sessions = append(m.sessions[:idx], m.sessions[idx+1:]...)
-		m.store.Sessions = m.sessions
-		state.Save(m.store)
-		// Adjust active index
-		if len(m.sessions) == 0 {
-			m.activeIdx = -1
-		} else if m.activeIdx >= len(m.sessions) {
-			m.activeIdx = len(m.sessions) - 1
-			m.loadSession(m.activeIdx)
-		} else {
-			m.loadSession(m.activeIdx)
+		for i, s := range m.sessions {
+			if s.ID == msg.sessionID {
+				m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+				m.store.Sessions = m.sessions
+				state.Save(m.store)
+				if len(m.sessions) == 0 {
+					m.activeIdx = -1
+				} else if m.activeIdx >= len(m.sessions) {
+					m.activeIdx = len(m.sessions) - 1
+					m.loadSession(m.activeIdx)
+				} else {
+					m.loadSession(m.activeIdx)
+				}
+				break
+			}
 		}
 		return m, nil
 
@@ -304,8 +303,6 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "?":
 		m.overlay = overlayHelp
-	case ";":
-		m.leaderActive = true
 	}
 	return m, nil
 }
@@ -335,7 +332,7 @@ func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.overlay = overlayNone
 	if msg.String() == "y" || msg.String() == "Y" {
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
-			return m, closeSession(m.sessions[m.activeIdx].ID, m.activeIdx)
+			return m, closeSession(m.sessions[m.activeIdx].ID)
 		}
 	}
 	return m, nil
@@ -366,10 +363,10 @@ func spawnSession(name, rootDir string, sessionCount int) tea.Cmd {
 	}
 }
 
-func closeSession(sessionID string, idx int) tea.Cmd {
+func closeSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		tmux.Kill(sessionID) // best-effort; ignore error
-		return sessionClosedMsg{idx: idx}
+		tmux.Kill(sessionID)
+		return sessionClosedMsg{sessionID: sessionID}
 	}
 }
 
@@ -414,7 +411,7 @@ func (m *Model) killAllSessions() {
 }
 
 func (m *Model) openEditor() tea.Cmd {
-	claudeMD := m.cfg.General.RootDir + "/CLAUDE.md"
+	claudeMD := filepath.Join(m.cfg.General.RootDir, "CLAUDE.md")
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
@@ -428,7 +425,7 @@ func (m *Model) openEditor() tea.Cmd {
 func (m *Model) uniqueName(name string) string {
 	existing := map[string]bool{}
 	for _, s := range m.sessions {
-		existing[s.ID] = true
+		existing[s.Name] = true
 	}
 	candidate := name
 	for i := 2; existing[candidate]; i++ {

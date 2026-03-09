@@ -58,7 +58,7 @@ func CapturePane(id string) (string, error) {
 // SendKeys forwards a named key to a tmux session (e.g. "Enter", "BSpace").
 func SendKeys(id string, key string) error {
 	name := SessionName(id)
-	out, err := exec.Command("tmux", "send-keys", "-t", name, key, "").CombinedOutput()
+	out, err := exec.Command("tmux", "send-keys", "-t", name, key).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux send-keys: %w\n%s", err, out)
 	}
