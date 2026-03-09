@@ -57,6 +57,7 @@ type Model struct {
 	leaderActive bool    // true after ; is pressed, waiting for next key
 	overlay      overlay
 	tick         int     // animation frame counter
+	statusMsg    string  // transient error message shown in status bar
 
 	nameInput textinput.Model
 	viewport  viewport.Model
@@ -75,8 +76,12 @@ func New(cfg *config.Config, st *state.State) *Model {
 		sidebarOpen: true,
 		nameInput:   newSessionInput(),
 	}
-	if len(m.sessions) > 0 {
-		m.activeIdx = 0
+	// Start on the first live session
+	for i, s := range m.sessions {
+		if !s.Dead {
+			m.activeIdx = i
+			break
+		}
 	}
 	return m
 }
@@ -110,12 +115,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll active session pane content every tick
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
 			s := m.sessions[m.activeIdx]
-			cmds = append(cmds, capturePane(s.ID))
+			if !s.Dead {
+				cmds = append(cmds, capturePane(s.ID))
+			}
 		}
 
 		// Update status for all sessions every ~2s (13 ticks × 150ms)
 		if m.tick%13 == 0 {
 			for _, s := range m.sessions {
+				if s.Dead {
+					continue
+				}
 				s.Status = session.Detect(s.PaneContent, s.LastOutputAt, s.CreatedAt, s.Status)
 			}
 		}
@@ -140,6 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionSpawnedMsg:
+		m.statusMsg = "" // clear any error
 		m.sessions = append(m.sessions, msg.sess)
 		m.store.Sessions = m.sessions
 		state.Save(m.store)
@@ -160,13 +171,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.loadSession(m.activeIdx)
 				}
+				// If new active session is dead, find next live one
+				if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && m.sessions[m.activeIdx].Dead {
+					for i, s := range m.sessions {
+						if !s.Dead {
+							m.activeIdx = i
+							break
+						}
+					}
+				}
 				break
 			}
 		}
 		return m, nil
 
 	case errMsg:
-		// For now: silently ignore errors (will be surfaced via status bar in future iterations)
+		m.statusMsg = "Error: " + msg.err.Error()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -454,7 +474,7 @@ func (m *Model) View() string {
 		return renderConfirm(fmt.Sprintf("Kill session %q? (y/N)", name), m.width, m.height)
 	}
 
-	statusBar := renderStatusBar(m.sessions, m.width)
+	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
 	mainHeight := m.height - 2
 
 	var mainContent string

@@ -49,12 +49,14 @@ func main() {
 }
 
 // reconnect checks each persisted session against live tmux sessions.
-// Sessions without a live tmux counterpart are removed from state.
+// Sessions without a live tmux counterpart are marked as dead.
 func reconnect(st *state.State) {
 	live, err := tmux.LiveSessions()
 	if err != nil {
-		// tmux may not be running yet; proceed with empty sessions
-		st.Sessions = nil
+		// tmux may not be running yet; all sessions will appear dead
+		for _, s := range st.Sessions {
+			s.Dead = true
+		}
 		return
 	}
 
@@ -63,14 +65,12 @@ func reconnect(st *state.State) {
 		liveSet[id] = true
 	}
 
-	var alive []*session.Session
 	for _, s := range st.Sessions {
 		if liveSet[s.ID] {
-			s.Status = session.StatusDone // will be updated on first tick
+			s.Status = session.StatusDone
 			s.Dead = false
-			alive = append(alive, s)
+		} else {
+			s.Dead = true
 		}
-		// Sessions not in tmux are silently dropped
 	}
-	st.Sessions = alive
 }

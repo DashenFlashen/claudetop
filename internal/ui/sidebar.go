@@ -47,7 +47,7 @@ func statusDot(s *session.Session, tick int) string {
 	case session.StatusNeedsInput:
 		return dotRed.Render("●")
 	case session.StatusPermission:
-		return dotRed.Render("●!")
+		return dotRed.Render("●[!]")
 	case session.StatusDone:
 		return dotGreen.Render("●")
 	case session.StatusStuck:
@@ -83,11 +83,22 @@ func renderSidebar(sessions []*session.Session, activeIdx int, height int, tick 
 				name = string(runes[:maxName-1]) + "…"
 			}
 
-			line := fmt.Sprintf(" %d %s %s", i+1, dot, name)
+			var line string
+			if s.Dead {
+				line = fmt.Sprintf(" %d ✗ %s [dead]", i+1, name)
+			} else {
+				line = fmt.Sprintf(" %d %s %s", i+1, dot, name)
+			}
 
 			style := sidebarItemStyle.Width(sidebarWidth)
 			if i == activeIdx {
 				style = sidebarActiveStyle.Width(sidebarWidth)
+			}
+			if s.Dead {
+				style = lipgloss.NewStyle().
+					Width(sidebarWidth).
+					Background(lipgloss.Color("236")).
+					Foreground(lipgloss.Color("240"))
 			}
 			lines = append(lines, style.Render(line))
 		}

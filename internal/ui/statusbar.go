@@ -26,7 +26,7 @@ var (
 )
 
 // renderStatusBar returns the top status line string.
-func renderStatusBar(sessions []*session.Session, width int) string {
+func renderStatusBar(sessions []*session.Session, width int, statusMsg string) string {
 	total := len(sessions)
 	needsInput := 0
 	for _, s := range sessions {
@@ -39,6 +39,12 @@ func renderStatusBar(sessions []*session.Session, width int) string {
 	left += statusBarStyle.Render(fmt.Sprintf("  %d sessions", total))
 	if needsInput > 0 {
 		left += "  " + needsInputStyle.Render(fmt.Sprintf("● %d needs input", needsInput))
+	}
+	if statusMsg != "" {
+		left += "  " + lipgloss.NewStyle().
+			Background(lipgloss.Color("235")).
+			Foreground(lipgloss.Color("196")).
+			Render("⚠ "+statusMsg)
 	}
 
 	clock := statusBarStyle.Render(time.Now().Format("15:04"))
