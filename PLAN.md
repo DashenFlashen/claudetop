@@ -3,7 +3,7 @@
 ## Components
 
 - [x] Task 1: Project scaffolding
-- [ ] Task 2: Config loading
+- [x] Task 2: Config loading
 - [ ] Task 3: Session model
 - [ ] Task 4: tmux manager
 - [ ] Task 5: State store
