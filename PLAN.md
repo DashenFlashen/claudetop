@@ -9,7 +9,7 @@
 - [x] Task 5: State store
 - [x] Task 6: Status detector
 - [x] Task 7: Status bar component
-- [ ] Task 8: Sidebar component
+- [x] Task 8: Sidebar component
 - [ ] Task 9: Main viewport component
 - [ ] Task 10: Help overlay
 - [ ] Task 11: New session flow
