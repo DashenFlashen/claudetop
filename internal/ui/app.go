@@ -120,12 +120,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Update status for all sessions every ~2s (13 ticks × 150ms)
+		// Every ~2s: poll all background sessions for pane content + update all statuses
 		if m.tick%13 == 0 {
-			for _, s := range m.sessions {
+			for i, s := range m.sessions {
 				if s.Dead {
 					continue
 				}
+				// Poll background sessions (active session already polled above at full rate)
+				if i != m.activeIdx {
+					cmds = append(cmds, capturePane(s.ID))
+				}
+				// Update status using latest known content
 				s.Status = session.Detect(s.PaneContent, s.LastOutputAt, s.CreatedAt, s.Status)
 			}
 		}
