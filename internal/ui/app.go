@@ -1,1 +1,517 @@
 package ui
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"claudetop/internal/config"
+	"claudetop/internal/session"
+	"claudetop/internal/state"
+	"claudetop/internal/tmux"
+)
+
+// Internal message types
+
+type tickMsg time.Time
+
+type paneContentMsg struct {
+	sessionID string
+	content   string
+}
+
+type sessionSpawnedMsg struct {
+	sess *session.Session
+}
+
+type sessionClosedMsg struct {
+	idx int
+}
+
+type errMsg struct{ err error }
+
+// overlay represents which (if any) overlay is currently shown.
+type overlay int
+
+const (
+	overlayNone overlay = iota
+	overlayHelp
+	overlayNewSession
+	overlayCloseConfirm
+)
+
+// Model is the root Bubbletea model.
+type Model struct {
+	cfg      *config.Config
+	store    *state.State
+	sessions []*session.Session
+
+	activeIdx    int     // index of focused session, -1 if none
+	sidebarOpen  bool
+	leaderActive bool    // true after ; is pressed, waiting for next key
+	overlay      overlay
+	tick         int     // animation frame counter
+
+	nameInput textinput.Model
+	viewport  viewport.Model
+
+	width  int
+	height int
+}
+
+// New creates the app model from loaded config and state.
+func New(cfg *config.Config, st *state.State) *Model {
+	m := &Model{
+		cfg:         cfg,
+		store:       st,
+		sessions:    st.Sessions,
+		activeIdx:   -1,
+		sidebarOpen: true,
+		nameInput:   newSessionInput(),
+	}
+	if len(m.sessions) > 0 {
+		m.activeIdx = 0
+	}
+	return m
+}
+
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(
+		tea.EnterAltScreen,
+		tickCmd(),
+	)
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.resizeViewport()
+		return m, nil
+
+	case tickMsg:
+		m.tick++
+		cmds := []tea.Cmd{tickCmd()}
+
+		// Poll active session pane content every tick
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			s := m.sessions[m.activeIdx]
+			cmds = append(cmds, capturePane(s.ID))
+		}
+
+		// Update status for all sessions every ~2s (13 ticks × 150ms)
+		if m.tick%13 == 0 {
+			for _, s := range m.sessions {
+				s.Status = session.Detect(s.PaneContent, s.LastOutputAt, s.CreatedAt, s.Status)
+			}
+		}
+
+		return m, tea.Batch(cmds...)
+
+	case paneContentMsg:
+		for _, s := range m.sessions {
+			if s.ID == msg.sessionID {
+				if s.PaneContent != msg.content {
+					s.PaneContent = msg.content
+					s.LastOutputAt = time.Now()
+				}
+				// If this is the active session, refresh the viewport
+				if m.activeIdx >= 0 && m.sessions[m.activeIdx].ID == msg.sessionID {
+					m.viewport.SetContent(msg.content)
+					m.viewport.GotoBottom()
+				}
+				break
+			}
+		}
+		return m, nil
+
+	case sessionSpawnedMsg:
+		m.sessions = append(m.sessions, msg.sess)
+		m.store.Sessions = m.sessions
+		state.Save(m.store)
+		m.switchSession(len(m.sessions) - 1)
+		return m, nil
+
+	case sessionClosedMsg:
+		idx := msg.idx
+		if idx < 0 || idx >= len(m.sessions) {
+			return m, nil
+		}
+		m.sessions = append(m.sessions[:idx], m.sessions[idx+1:]...)
+		m.store.Sessions = m.sessions
+		state.Save(m.store)
+		// Adjust active index
+		if len(m.sessions) == 0 {
+			m.activeIdx = -1
+		} else if m.activeIdx >= len(m.sessions) {
+			m.activeIdx = len(m.sessions) - 1
+			m.loadSession(m.activeIdx)
+		} else {
+			m.loadSession(m.activeIdx)
+		}
+		return m, nil
+
+	case errMsg:
+		// For now: silently ignore errors (will be surfaced via status bar in future iterations)
+		return m, nil
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+
+	return m, nil
+}
+
+func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Overlay handlers take priority
+	switch m.overlay {
+	case overlayHelp:
+		if msg.Type == tea.KeyEsc || msg.String() == "?" {
+			m.overlay = overlayNone
+		}
+		return m, nil
+
+	case overlayNewSession:
+		return m.handleNewSessionKey(msg)
+
+	case overlayCloseConfirm:
+		return m.handleCloseConfirmKey(msg)
+	}
+
+	// Leader key sequence: ; arms it, next key is a TUI command
+	if m.leaderActive {
+		m.leaderActive = false
+		return m.handleLeaderKey(msg)
+	}
+
+	// Always-intercepted keys
+	switch msg.String() {
+	case "\\":
+		m.sidebarOpen = !m.sidebarOpen
+		m.resizeViewport()
+		return m, nil
+	case ";":
+		m.leaderActive = true
+		return m, nil
+	}
+
+	// No active session: handle as sidebar navigation
+	if m.activeIdx < 0 || len(m.sessions) == 0 {
+		return m.handleSidebarKey(msg)
+	}
+
+	// Session is focused: intercept navigation keys, forward everything else
+	switch msg.String() {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(m.sessions) {
+			m.switchSession(idx)
+		}
+		return m, nil
+	case "]":
+		m.switchSession((m.activeIdx + 1) % len(m.sessions))
+		return m, nil
+	case "[":
+		next := m.activeIdx - 1
+		if next < 0 {
+			next = len(m.sessions) - 1
+		}
+		m.switchSession(next)
+		return m, nil
+	case "n":
+		m.overlay = overlayNewSession
+		m.nameInput = newSessionInput()
+		return m, textinput.Blink
+	case "x":
+		m.overlay = overlayCloseConfirm
+		return m, nil
+	case "?":
+		m.overlay = overlayHelp
+		return m, nil
+	}
+
+	// Forward to tmux
+	s := m.sessions[m.activeIdx]
+	return m, forwardKey(s.ID, msg)
+}
+
+func (m *Model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "?":
+		m.overlay = overlayHelp
+	case "q":
+		return m, tea.Quit
+	case "Q":
+		m.killAllSessions()
+		return m, tea.Quit
+	case "e":
+		return m, m.openEditor()
+	case "n":
+		m.overlay = overlayNewSession
+		m.nameInput = newSessionInput()
+		return m, textinput.Blink
+	}
+	return m, nil
+}
+
+func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(m.sessions) {
+			m.switchSession(idx)
+		}
+	case "]", "j":
+		if len(m.sessions) > 0 {
+			next := m.activeIdx + 1
+			if m.activeIdx < 0 {
+				next = 0
+			} else {
+				next = (m.activeIdx + 1) % len(m.sessions)
+			}
+			m.switchSession(next)
+		}
+	case "[", "k":
+		if len(m.sessions) > 0 {
+			next := m.activeIdx - 1
+			if next < 0 {
+				next = len(m.sessions) - 1
+			}
+			m.switchSession(next)
+		}
+	case "n":
+		m.overlay = overlayNewSession
+		m.nameInput = newSessionInput()
+		return m, textinput.Blink
+	case "x":
+		if m.activeIdx >= 0 {
+			m.overlay = overlayCloseConfirm
+		}
+	case "?":
+		m.overlay = overlayHelp
+	case ";":
+		m.leaderActive = true
+	}
+	return m, nil
+}
+
+func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.nameInput.Value())
+		if name == "" {
+			name = fmt.Sprintf("session-%d", len(m.sessions)+1)
+		}
+		name = m.uniqueName(name)
+		m.overlay = overlayNone
+		return m, spawnSession(name, m.cfg.General.RootDir, len(m.sessions))
+
+	case tea.KeyEsc:
+		m.overlay = overlayNone
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.nameInput, cmd = m.nameInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.overlay = overlayNone
+	if msg.String() == "y" || msg.String() == "Y" {
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			return m, closeSession(m.sessions[m.activeIdx].ID, m.activeIdx)
+		}
+	}
+	return m, nil
+}
+
+// Commands (pure functions — no model mutation)
+
+func capturePane(sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		content, err := tmux.CapturePane(sessionID)
+		if err != nil {
+			return nil // session may still be starting
+		}
+		return paneContentMsg{sessionID: sessionID, content: content}
+	}
+}
+
+func spawnSession(name, rootDir string, sessionCount int) tea.Cmd {
+	return func() tea.Msg {
+		s := session.NewSession(name, sessionCount+1)
+		if _, err := os.Stat(rootDir); err != nil {
+			return errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
+		}
+		if err := tmux.Create(s.ID, rootDir); err != nil {
+			return errMsg{fmt.Errorf("create session: %w", err)}
+		}
+		return sessionSpawnedMsg{sess: s}
+	}
+}
+
+func closeSession(sessionID string, idx int) tea.Cmd {
+	return func() tea.Msg {
+		tmux.Kill(sessionID) // best-effort; ignore error
+		return sessionClosedMsg{idx: idx}
+	}
+}
+
+// Helpers
+
+func (m *Model) switchSession(idx int) {
+	m.activeIdx = idx
+	m.loadSession(idx)
+}
+
+func (m *Model) loadSession(idx int) {
+	if idx < 0 || idx >= len(m.sessions) {
+		return
+	}
+	m.viewport.SetContent(m.sessions[idx].PaneContent)
+	m.viewport.GotoBottom()
+}
+
+func (m *Model) resizeViewport() {
+	vpWidth := m.width
+	if m.sidebarOpen {
+		vpWidth -= sidebarWidth + 1 // +1 for separator column
+	}
+	vpHeight := m.height - 2 // status bar (1) + hint line (1)
+	if vpWidth < 1 {
+		vpWidth = 1
+	}
+	if vpHeight < 1 {
+		vpHeight = 1
+	}
+	m.viewport = newViewport(vpWidth, vpHeight)
+	m.loadSession(m.activeIdx)
+}
+
+func (m *Model) killAllSessions() {
+	for _, s := range m.sessions {
+		tmux.Kill(s.ID)
+	}
+	m.sessions = nil
+	m.store.Sessions = nil
+	state.Save(m.store)
+}
+
+func (m *Model) openEditor() tea.Cmd {
+	claudeMD := m.cfg.General.RootDir + "/CLAUDE.md"
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	cmd := exec.Command(editor, claudeMD)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return nil
+	})
+}
+
+func (m *Model) uniqueName(name string) string {
+	existing := map[string]bool{}
+	for _, s := range m.sessions {
+		existing[s.ID] = true
+	}
+	candidate := name
+	for i := 2; existing[candidate]; i++ {
+		candidate = fmt.Sprintf("%s-%d", name, i)
+	}
+	return candidate
+}
+
+// View renders the complete TUI.
+func (m *Model) View() string {
+	if m.width == 0 {
+		return ""
+	}
+
+	// Overlays take the full screen
+	switch m.overlay {
+	case overlayHelp:
+		return renderHelp(m.width, m.height)
+	case overlayNewSession:
+		return renderNewSession(m.nameInput, m.width, m.height)
+	case overlayCloseConfirm:
+		name := ""
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			name = m.sessions[m.activeIdx].DisplayName()
+		}
+		return renderConfirm(fmt.Sprintf("Kill session %q? (y/N)", name), m.width, m.height)
+	}
+
+	statusBar := renderStatusBar(m.sessions, m.width)
+	mainHeight := m.height - 2
+
+	var mainContent string
+	if m.sidebarOpen {
+		sidebar := renderSidebar(m.sessions, m.activeIdx, mainHeight, m.tick)
+		// Separator column
+		sep := ""
+		for i := 0; i < mainHeight; i++ {
+			if i > 0 {
+				sep += "\n"
+			}
+			sep += lipgloss.NewStyle().
+				Background(lipgloss.Color("236")).
+				Foreground(lipgloss.Color("240")).
+				Render("│")
+		}
+		vp := m.viewport.View()
+		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, sep, vp)
+	} else {
+		mainContent = m.viewport.View()
+	}
+
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Background(lipgloss.Color("0"))
+	hint := hintStyle.Width(m.width).Render(" \\ sidebar   ;? help   n new   x close   ;q quit")
+
+	return lipgloss.JoinVertical(lipgloss.Left, statusBar, mainContent, hint)
+}
+
+// renderConfirm renders a centered confirmation dialog.
+func renderConfirm(msg string, width, height int) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("196")).
+		Background(lipgloss.Color("235")).
+		Padding(1, 2)
+
+	content := style.Render(msg)
+	leftPad := (width - lipgloss.Width(content)) / 2
+	topPad := (height - lipgloss.Height(content)) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	var result []string
+	for i := 0; i < topPad; i++ {
+		result = append(result, "")
+	}
+	for _, line := range strings.Split(content, "\n") {
+		result = append(result, strings.Repeat(" ", leftPad)+line)
+	}
+	return strings.Join(result, "\n")
+}

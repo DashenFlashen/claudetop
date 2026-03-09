@@ -13,8 +13,8 @@
 - [x] Task 9: Main viewport component
 - [x] Task 10: Help overlay
 - [x] Task 11: New session flow
-- [ ] Task 12: Main app model
-- [ ] Task 13: Main entry point
+- [x] Task 12: Main app model
+- [x] Task 13: Main entry point
 - [ ] Task 14: Integration testing (3+ concurrent sessions)
 - [ ] Task 15: Phase 4 review
 - [ ] Task 16: Phase 5 review
