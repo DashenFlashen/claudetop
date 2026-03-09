@@ -12,7 +12,7 @@
 - [x] Task 8: Sidebar component
 - [x] Task 9: Main viewport component
 - [x] Task 10: Help overlay
-- [ ] Task 11: New session flow
+- [x] Task 11: New session flow
 - [ ] Task 12: Main app model
 - [ ] Task 13: Main entry point
 - [ ] Task 14: Integration testing (3+ concurrent sessions)
