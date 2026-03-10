@@ -252,24 +252,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSidebarKey(msg)
 	}
 
-	// Session is focused: intercept navigation keys, forward everything else
+	// Session is focused: intercept TUI action keys, forward everything else.
+	// Navigation keys (1-9, ], [) are NOT intercepted here — they pass through to
+	// Claude Code. Use ;1-;9 and ;]/;[ to switch sessions while a session is focused.
 	switch msg.String() {
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		idx := int(msg.String()[0]-'0') - 1
-		if idx < len(m.sessions) {
-			m.switchSession(idx)
-		}
-		return m, nil
-	case "]":
-		m.switchSession((m.activeIdx + 1) % len(m.sessions))
-		return m, nil
-	case "[":
-		next := m.activeIdx - 1
-		if next < 0 {
-			next = len(m.sessions) - 1
-		}
-		m.switchSession(next)
-		return m, nil
 	case "n":
 		m.overlay = overlayNewSession
 		m.nameInput = newSessionInput()
@@ -289,6 +275,23 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0]-'0') - 1
+		if idx < len(m.sessions) {
+			m.switchSession(idx)
+		}
+	case "]":
+		if len(m.sessions) > 0 {
+			m.switchSession((m.activeIdx + 1) % len(m.sessions))
+		}
+	case "[":
+		if len(m.sessions) > 0 {
+			next := m.activeIdx - 1
+			if next < 0 {
+				next = len(m.sessions) - 1
+			}
+			m.switchSession(next)
+		}
 	case "?":
 		m.overlay = overlayHelp
 	case "q":
@@ -523,7 +526,7 @@ func (m *Model) View() string {
 	hintStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Background(lipgloss.Color("0"))
-	hint := hintStyle.Width(m.width).Render(" \\ sidebar   ;? help   n new   x close   ;q quit")
+	hint := hintStyle.Width(m.width).Render(" \\ sidebar   ;1-9 switch   ;]/;[ prev/next   n new   x close   ;q quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, statusBar, mainContent, hint)
 }

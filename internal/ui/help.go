@@ -34,20 +34,22 @@ type helpEntry struct {
 }
 
 var helpEntries = []helpEntry{
-	{"Navigation", ""},
-	{"1-9", "Switch to session"},
-	{"] / [", "Next / prev session"},
+	{"Always", ""},
 	{"\\", "Toggle sidebar"},
-	{"", ""},
-	{"Sessions", ""},
 	{"n", "New session"},
 	{"x", "Close session (confirm)"},
 	{"", ""},
 	{"; prefix", ""},
+	{";1-9", "Switch to session by number"},
+	{";] / ;[", "Next / prev session"},
 	{";?", "Help"},
+	{";n", "New session"},
 	{";q", "Quit (sessions keep running)"},
 	{";Q", "Quit and kill all sessions"},
 	{";e", "Edit root CLAUDE.md in $EDITOR"},
+	{"", ""},
+	{"Sidebar only", ""},
+	{"1-9 / j / k", "Navigate sessions"},
 	{"", ""},
 	{"Esc", "Close overlay"},
 }
