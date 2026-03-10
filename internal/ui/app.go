@@ -62,6 +62,8 @@ const (
 	overlayPark
 	overlayRename
 	overlaySkillOutput
+	overlayCapture
+	overlayInbox
 )
 
 // Model is the root Bubbletea model.
@@ -89,7 +91,9 @@ type Model struct {
 	skillRunning bool           // true while subprocess is executing
 	skillVP      viewport.Model // scrollable viewport for skill output
 
-	keyBuffer string // accumulated rune keystrokes pending tmux send
+	keyBuffer    string         // accumulated rune keystrokes pending tmux send
+	captureInput textinput.Model
+	inboxCursor  int
 
 	width  int
 	height int
@@ -302,6 +306,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRenameKey(msg)
 	case overlaySkillOutput:
 		return m.handleSkillOutputKey(msg)
+	case overlayCapture:
+		return m.handleCaptureKey(msg)
+	case overlayInbox:
+		return m.handleInboxKey(msg)
 	}
 
 	// Tab: toggle sidebar focus. Entering syncs cursor to active session;
@@ -434,6 +442,13 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "Q":
 		m.killAllSessions()
 		return m, tea.Quit
+	case "c":
+		m.overlay = overlayCapture
+		m.captureInput = newCaptureInput()
+		return m, textinput.Blink
+	case "b":
+		m.inboxCursor = 0
+		m.overlay = overlayInbox
 	case "e":
 		return m, m.openEditor()
 	default:
@@ -481,6 +496,35 @@ func (m *Model) handleSkillOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		m.overlay = overlayNone
 		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) handleCaptureKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		content := strings.TrimSpace(m.captureInput.Value())
+		if content != "" {
+			item := state.NewInboxItem(content, "manual")
+			m.store.InboxItems = append(m.store.InboxItems, item)
+			m.saveState()
+			m.setStatusMsg("Captured!")
+		}
+		m.overlay = overlayNone
+		return m, nil
+	case tea.KeyEsc:
+		m.overlay = overlayNone
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.captureInput, cmd = m.captureInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) handleInboxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		m.overlay = overlayNone
 	}
 	return m, nil
 }
@@ -779,6 +823,8 @@ func (m *Model) View() string {
 		return renderRename(m.renameInput, m.width, m.height)
 	case overlaySkillOutput:
 		return renderSkillOutput(m.skillName, m.skillOutput, m.skillRunning, m.skillVP, m.tick, m.width, m.height)
+	case overlayCapture:
+		return renderCapture(m.captureInput, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
