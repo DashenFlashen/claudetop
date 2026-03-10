@@ -66,3 +66,15 @@ Run `./claudetop` manually and verify the checklist in PLAN.md Task 14:
 - `?` opens help overlay
 - `;e` opens CLAUDE.md in $EDITOR
 - Works correctly with 3+ concurrent sessions
+
+---
+
+## Iteration 2 — Session Management Quality
+
+- Modal keyboard model: Tab focuses sidebar (command mode) / session (passthrough mode)
+- `;` leader key removed; all commands accessed via sidebar
+- Parked sessions with optional notes; PARKED section in sidebar
+- Rename any session in place (`r`)
+- Prompt editor (`N`) with multi-line textarea; Ctrl+S to submit
+- Auto-naming via `claude -p` for sessions created with prompt editor
+- statusMsg expires after 10s; redundant EnterAltScreen removed; config.Dir() propagates error
