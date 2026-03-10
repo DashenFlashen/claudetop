@@ -51,6 +51,7 @@ const (
 	overlayHelp
 	overlayNewSession
 	overlayCloseConfirm
+	overlayPark
 )
 
 // Model is the root Bubbletea model.
@@ -68,6 +69,7 @@ type Model struct {
 	statusMsgAt    time.Time // when statusMsg was set (for expiry)
 
 	nameInput textinput.Model
+	parkInput textinput.Model
 	viewport  viewport.Model
 
 	width  int
@@ -231,6 +233,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleNewSessionKey(msg)
 	case overlayCloseConfirm:
 		return m.handleCloseConfirmKey(msg)
+	case overlayPark:
+		return m.handleParkKey(msg)
 	}
 
 	// Tab: always switch sidebar focus when no overlay is open
@@ -300,6 +304,19 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
 			m.overlay = overlayCloseConfirm
 		}
+	case "p":
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && !m.sessions[m.activeIdx].Parked {
+			m.overlay = overlayPark
+			m.parkInput = newParkInput()
+			return m, textinput.Blink
+		}
+	case "u":
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && m.sessions[m.activeIdx].Parked {
+			m.sessions[m.activeIdx].Parked = false
+			m.sessions[m.activeIdx].ParkNote = ""
+			m.store.Sessions = m.sessions
+			m.saveState()
+		}
 	case "?":
 		m.overlay = overlayHelp
 	case "q":
@@ -311,6 +328,27 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openEditor()
 	}
 	return m, nil
+}
+
+func (m *Model) handleParkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			m.sessions[m.activeIdx].Parked = true
+			m.sessions[m.activeIdx].ParkNote = strings.TrimSpace(m.parkInput.Value())
+			m.store.Sessions = m.sessions
+			m.saveState()
+		}
+		m.overlay = overlayNone
+		return m, nil
+	case tea.KeyEsc:
+		m.overlay = overlayNone
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.parkInput, cmd = m.parkInput.Update(msg)
+	return m, cmd
 }
 
 func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -485,6 +523,8 @@ func (m *Model) View() string {
 			name = m.sessions[m.activeIdx].DisplayName()
 		}
 		return renderConfirm(fmt.Sprintf("Kill session %q? (y/N)", name), m.width, m.height)
+	case overlayPark:
+		return renderPark(m.parkInput, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
