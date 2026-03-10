@@ -63,8 +63,9 @@ type Model struct {
 	sidebarOpen  bool
 	leaderActive bool    // true after ; is pressed, waiting for next key
 	overlay      overlay
-	tick         int     // animation frame counter
-	statusMsg    string  // transient error message shown in status bar
+	tick         int       // animation frame counter
+	statusMsg    string    // transient message shown in status bar
+	statusMsgAt  time.Time // when statusMsg was set (for expiry)
 
 	nameInput textinput.Model
 	viewport  viewport.Model
@@ -94,10 +95,7 @@ func New(cfg *config.Config, st *state.State) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
-		tea.EnterAltScreen,
-		tickCmd(),
-	)
+	return tickCmd()
 }
 
 func tickCmd() tea.Cmd {
@@ -117,6 +115,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.tick++
+		const statusMsgTTL = 10 * time.Second
+		if m.statusMsg != "" && time.Since(m.statusMsgAt) > statusMsgTTL {
+			m.statusMsg = ""
+		}
 		cmds := []tea.Cmd{tickCmd()}
 
 		// Poll active session pane content every tick
@@ -172,7 +174,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionClosedMsg:
 		if msg.err != nil {
-			m.statusMsg = "Error: " + msg.err.Error()
+			m.setStatusMsg("Error: " + msg.err.Error())
 		}
 		for i, s := range m.sessions {
 			if s.ID == msg.sessionID {
@@ -204,7 +206,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
-		m.statusMsg = "Error: " + msg.err.Error()
+		m.setStatusMsg("Error: " + msg.err.Error())
 		return m, nil
 
 	case tea.KeyMsg:
@@ -383,8 +385,14 @@ func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // the user sees the error rather than silently losing state on next restart.
 func (m *Model) saveState() {
 	if err := state.Save(m.store); err != nil {
-		m.statusMsg = "Error: " + err.Error()
+		m.setStatusMsg("Error: " + err.Error())
 	}
+}
+
+// setStatusMsg sets a transient status bar message with an expiry timestamp.
+func (m *Model) setStatusMsg(msg string) {
+	m.statusMsg = msg
+	m.statusMsgAt = time.Now()
 }
 
 // Commands (pure functions — no model mutation)
