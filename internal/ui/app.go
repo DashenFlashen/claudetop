@@ -59,13 +59,13 @@ type Model struct {
 	store    *state.State
 	sessions []*session.Session
 
-	activeIdx    int     // index of focused session, -1 if none
-	sidebarOpen  bool
-	leaderActive bool    // true after ; is pressed, waiting for next key
-	overlay      overlay
-	tick         int       // animation frame counter
-	statusMsg    string    // transient message shown in status bar
-	statusMsgAt  time.Time // when statusMsg was set (for expiry)
+	activeIdx      int
+	sidebarOpen    bool
+	sidebarFocused bool // true = sidebar has keyboard focus
+	overlay        overlay
+	tick           int       // animation frame counter
+	statusMsg      string    // transient message shown in status bar
+	statusMsgAt    time.Time // when statusMsg was set (for expiry)
 
 	nameInput textinput.Model
 	viewport  viewport.Model
@@ -91,6 +91,8 @@ func New(cfg *config.Config, st *state.State) *Model {
 			break
 		}
 	}
+	// Start in sidebar mode if no live sessions
+	m.sidebarFocused = m.activeIdx < 0
 	return m
 }
 
@@ -165,11 +167,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionSpawnedMsg:
-		m.statusMsg = "" // clear any error
+		m.statusMsg = ""
 		m.sessions = append(m.sessions, msg.sess)
 		m.store.Sessions = m.sessions
 		m.saveState()
 		m.switchSession(len(m.sessions) - 1)
+		m.sidebarFocused = false
 		return m, nil
 
 	case sessionClosedMsg:
@@ -224,75 +227,78 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 		}
 		return m, nil
-
 	case overlayNewSession:
 		return m.handleNewSessionKey(msg)
-
 	case overlayCloseConfirm:
 		return m.handleCloseConfirmKey(msg)
 	}
 
-	// Leader key sequence: ; arms it, next key is a TUI command
-	if m.leaderActive {
-		m.leaderActive = false
-		return m.handleLeaderKey(msg)
+	// Tab: always switch sidebar focus when no overlay is open
+	if msg.Type == tea.KeyTab {
+		m.sidebarFocused = !m.sidebarFocused
+		if m.sidebarFocused && !m.sidebarOpen {
+			m.sidebarOpen = true
+			m.resizeViewport()
+		}
+		return m, nil
 	}
 
-	// Always-intercepted keys
-	switch msg.String() {
-	case "\\":
+	// Sidebar show/hide toggle
+	if msg.String() == "\\" {
 		m.sidebarOpen = !m.sidebarOpen
+		if !m.sidebarOpen {
+			m.sidebarFocused = false
+		}
 		m.resizeViewport()
 		return m, nil
-	case ";":
-		m.leaderActive = true
-		return m, nil
 	}
 
-	// No active session: handle as sidebar navigation
-	if m.activeIdx < 0 || len(m.sessions) == 0 {
+	if m.sidebarFocused {
 		return m.handleSidebarKey(msg)
 	}
 
-	// Session is focused: intercept TUI action keys, forward everything else.
-	// Navigation keys (1-9, ], [) are NOT intercepted here — they pass through to
-	// Claude Code. Use ;1-;9 and ;]/;[ to switch sessions while a session is focused.
-	switch msg.String() {
-	case "n":
-		m.overlay = overlayNewSession
-		m.nameInput = newSessionInput()
-		return m, textinput.Blink
-	case "x":
-		m.overlay = overlayCloseConfirm
+	// Session focused: forward everything to tmux
+	if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+		s := m.sessions[m.activeIdx]
+		return m, forwardKey(s.ID, msg)
+	}
+	return m, nil
+}
+
+
+func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		m.sidebarFocused = false
 		return m, nil
-	case "?":
-		m.overlay = overlayHelp
+	case tea.KeyEsc:
+		m.sidebarFocused = false
+		return m, nil
+	case tea.KeyUp:
+		m.navigateSidebar(-1)
+		return m, nil
+	case tea.KeyDown:
+		m.navigateSidebar(1)
 		return m, nil
 	}
 
-	// Forward to tmux
-	s := m.sessions[m.activeIdx]
-	return m, forwardKey(s.ID, msg)
-}
-
-func (m *Model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "j":
+		m.navigateSidebar(1)
+	case "k":
+		m.navigateSidebar(-1)
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(m.sessions) {
 			m.switchSession(idx)
 		}
-	case "]":
-		if len(m.sessions) > 0 {
-			m.switchSession((m.activeIdx + 1) % len(m.sessions))
-		}
-	case "[":
-		if len(m.sessions) > 0 {
-			next := m.activeIdx - 1
-			if next < 0 {
-				next = len(m.sessions) - 1
-			}
-			m.switchSession(next)
+	case "n":
+		m.overlay = overlayNewSession
+		m.nameInput = newSessionInput()
+		return m, textinput.Blink
+	case "x":
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			m.overlay = overlayCloseConfirm
 		}
 	case "?":
 		m.overlay = overlayHelp
@@ -303,49 +309,6 @@ func (m *Model) handleLeaderKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "e":
 		return m, m.openEditor()
-	case "n":
-		m.overlay = overlayNewSession
-		m.nameInput = newSessionInput()
-		return m, textinput.Blink
-	}
-	return m, nil
-}
-
-func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		idx := int(msg.String()[0]-'0') - 1
-		if idx < len(m.sessions) {
-			m.switchSession(idx)
-		}
-	case "]", "j":
-		if len(m.sessions) > 0 {
-			next := m.activeIdx + 1
-			if m.activeIdx < 0 {
-				next = 0
-			} else {
-				next = (m.activeIdx + 1) % len(m.sessions)
-			}
-			m.switchSession(next)
-		}
-	case "[", "k":
-		if len(m.sessions) > 0 {
-			next := m.activeIdx - 1
-			if next < 0 {
-				next = len(m.sessions) - 1
-			}
-			m.switchSession(next)
-		}
-	case "n":
-		m.overlay = overlayNewSession
-		m.nameInput = newSessionInput()
-		return m, textinput.Blink
-	case "x":
-		if m.activeIdx >= 0 {
-			m.overlay = overlayCloseConfirm
-		}
-	case "?":
-		m.overlay = overlayHelp
 	}
 	return m, nil
 }
@@ -432,6 +395,19 @@ func closeSession(sessionID string) tea.Cmd {
 func (m *Model) switchSession(idx int) {
 	m.activeIdx = idx
 	m.loadSession(idx)
+}
+
+func (m *Model) navigateSidebar(dir int) {
+	if len(m.sessions) == 0 {
+		return
+	}
+	next := m.activeIdx + dir
+	if next < 0 {
+		next = len(m.sessions) - 1
+	} else if next >= len(m.sessions) {
+		next = 0
+	}
+	m.switchSession(next)
 }
 
 func (m *Model) loadSession(idx int) {
@@ -534,7 +510,13 @@ func (m *Model) View() string {
 	hintStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Background(lipgloss.Color("0"))
-	hint := hintStyle.Width(m.width).Render(" \\ sidebar   ;1-9 switch   ;]/;[ prev/next   n new   x close   ;q quit")
+	var hintText string
+	if m.sidebarFocused {
+		hintText = " Tab: session   j/k navigate   n new   x close   q quit   \\ hide sidebar"
+	} else {
+		hintText = " Tab: sidebar   \\ toggle   (all keys → Claude Code)"
+	}
+	hint := hintStyle.Width(m.width).Render(hintText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, statusBar, mainContent, hint)
 }
