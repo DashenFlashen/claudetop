@@ -27,10 +27,14 @@ func TestLoadFromFile(t *testing.T) {
 	t.Setenv("HOME", tmp)
 
 	dir := filepath.Join(tmp, ".claudetop")
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
 
 	content := "[general]\nroot_dir = \"/tmp/repos\"\nauto_name_sessions = false\n"
-	os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
 
 	cfg, err := Load()
 	if err != nil {

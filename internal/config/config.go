@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,23 +38,20 @@ func Path() (string, error) {
 
 // Load reads the config file, returning defaults if missing.
 func Load() (*Config, error) {
-	home, err := os.UserHomeDir()
+	dir, err := Dir()
 	if err != nil {
-		return nil, fmt.Errorf("home dir: %w", err)
+		return nil, err
 	}
 
 	cfg := &Config{
 		General: GeneralConfig{
-			RootDir:          home,
+			RootDir:          filepath.Dir(dir), // home is parent of ~/.claudetop
 			AutoNameSessions: true,
 		},
 	}
 
-	path, err := Path()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	path := filepath.Join(dir, "config.toml")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
 	}
 

@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func Load() (*State, error) {
 		return nil, err
 	}
 	data, err := os.ReadFile(p)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return &State{Sessions: []*session.Session{}}, nil
 	}
 	if err != nil {
