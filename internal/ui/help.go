@@ -54,6 +54,9 @@ var helpEntries = []helpEntry{
 	{"Q", "Quit and kill all sessions"},
 	{"e", "Edit root CLAUDE.md in $EDITOR"},
 	{"?", "Toggle this help"},
+	{"", ""},
+	{"Configured skills", ""},
+	{"[key]", "Launch skill (see SKILLS in sidebar)"},
 }
 
 // renderHelp renders the help overlay centered in the terminal.

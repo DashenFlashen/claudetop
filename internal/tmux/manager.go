@@ -15,6 +15,11 @@ func SessionName(id string) string {
 
 // Create creates a new detached tmux session and starts claude in it.
 func Create(id, rootDir string) error {
+	return CreateWithCommand(id, rootDir, "claude")
+}
+
+// CreateWithCommand creates a new detached tmux session and starts the given command in it.
+func CreateWithCommand(id, rootDir, command string) error {
 	name := SessionName(id)
 
 	out, err := exec.Command("tmux", "new-session", "-d", "-s", name, "-c", rootDir).CombinedOutput()
@@ -22,9 +27,9 @@ func Create(id, rootDir string) error {
 		return fmt.Errorf("tmux new-session: %w\n%s", err, out)
 	}
 
-	out, err = exec.Command("tmux", "send-keys", "-t", name, "claude", "Enter").CombinedOutput()
+	out, err = exec.Command("tmux", "send-keys", "-t", name, command, "Enter").CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("tmux send-keys claude: %w\n%s", err, out)
+		return fmt.Errorf("tmux send-keys: %w\n%s", err, out)
 	}
 
 	return nil

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"claudetop/internal/config"
 	"claudetop/internal/session"
 )
 
@@ -121,7 +122,7 @@ func renderSessionLine(s *session.Session, idx, activeIdx, cursorIdx, tick int) 
 // renderSidebar renders the session list sidebar.
 // activeIdx is the currently focused session (-1 if none).
 // tick is the animation counter for the working spinner.
-func renderSidebar(sessions []*session.Session, activeIdx, cursorIdx, height, tick int, focused bool) string {
+func renderSidebar(sessions []*session.Session, skills []config.SkillConfig, activeIdx, cursorIdx, height, tick int, focused bool) string {
 	var lines []string
 
 	headerStyle := sidebarHeaderStyle
@@ -165,6 +166,21 @@ func renderSidebar(sessions []*session.Session, activeIdx, cursorIdx, height, ti
 				}
 				lines = append(lines, parkedNoteStyle.Width(sidebarWidth).Render(note))
 			}
+		}
+	}
+
+	if len(skills) > 0 {
+		lines = append(lines, sidebarStyle.Width(sidebarWidth).Render(""))
+		lines = append(lines, headerStyle.Width(sidebarWidth).Render("SKILLS"))
+		for _, sk := range skills {
+			name := sk.Name
+			maxName := sidebarWidth - 6 // " [x] " prefix
+			if len([]rune(name)) > maxName {
+				runes := []rune(name)
+				name = string(runes[:maxName-1]) + "…"
+			}
+			line := fmt.Sprintf(" [%s] %s", sk.Key, name)
+			lines = append(lines, sidebarItemStyle.Width(sidebarWidth).Render(line))
 		}
 	}
 

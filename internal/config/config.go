@@ -11,10 +11,22 @@ import (
 
 type Config struct {
 	General GeneralConfig `toml:"general"`
+	Skills  []SkillConfig `toml:"skills"`
 }
 
 type GeneralConfig struct {
 	RootDir string `toml:"root_dir"`
+}
+
+// SkillConfig defines a quick-launch skill accessible from the sidebar.
+// Mode "output" runs the command as a subprocess and shows output in an overlay.
+// Mode "interactive" spawns a persistent tmux session in the sidebar.
+type SkillConfig struct {
+	Key         string `toml:"key"`
+	Name        string `toml:"name"`
+	Description string `toml:"description"`
+	Command     string `toml:"command"`
+	Mode        string `toml:"mode"`
 }
 
 // Dir returns the ~/.claudetop directory path.

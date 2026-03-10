@@ -44,6 +44,12 @@ type sessionRenamedMsg struct {
 	name      string
 }
 
+type skillOutputMsg struct {
+	name   string
+	output string
+	err    error
+}
+
 // overlay represents which (if any) overlay is currently shown.
 type overlay int
 
@@ -54,6 +60,7 @@ const (
 	overlayCloseConfirm
 	overlayPark
 	overlayRename
+	overlaySkillOutput
 )
 
 // Model is the root Bubbletea model.
@@ -75,6 +82,11 @@ type Model struct {
 	parkInput   textinput.Model
 	renameInput textinput.Model
 	viewport    viewport.Model
+
+	skillName    string         // name of skill shown in output overlay
+	skillOutput  string         // output from completed skill run ("" = still running)
+	skillRunning bool           // true while subprocess is executing
+	skillVP      viewport.Model // scrollable viewport for skill output
 
 	width  int
 	height int
@@ -186,6 +198,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebarFocused = false
 		return m, nil
 
+	case skillOutputMsg:
+		m.skillRunning = false
+		if msg.err != nil {
+			m.skillOutput = "Error: " + msg.err.Error()
+		} else {
+			m.skillOutput = msg.output
+		}
+		m.skillVP = newViewport(m.width-14, m.height-12)
+		m.skillVP.SetContent(m.skillOutput)
+		return m, nil
+
 	case sessionRenamedMsg:
 		for _, s := range m.sessions {
 			if s.ID == msg.sessionID {
@@ -264,6 +287,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleParkKey(msg)
 	case overlayRename:
 		return m.handleRenameKey(msg)
+	case overlaySkillOutput:
+		return m.handleSkillOutputKey(msg)
 	}
 
 	// Tab: toggle sidebar focus. Entering syncs cursor to active session;
@@ -390,6 +415,47 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "e":
 		return m, m.openEditor()
+	default:
+		// Check configured skills
+		for _, sk := range m.cfg.Skills {
+			if msg.String() == sk.Key {
+				return m.launchSkill(sk)
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) launchSkill(sk config.SkillConfig) (tea.Model, tea.Cmd) {
+	switch sk.Mode {
+	case "output":
+		m.overlay = overlaySkillOutput
+		m.skillName = sk.Name
+		m.skillOutput = ""
+		m.skillRunning = true
+		return m, runSkillOutput(sk, m.cfg.General.RootDir)
+	case "interactive":
+		name := m.uniqueName(sk.Name)
+		m.sidebarFocused = false
+		return m, spawnSessionWithCommand(name, m.cfg.General.RootDir, sk.Command, len(m.sessions))
+	}
+	return m, nil
+}
+
+func (m *Model) handleSkillOutputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.overlay = overlayNone
+		return m, nil
+	}
+	switch msg.String() {
+	case "j":
+		m.skillVP.LineDown(1)
+	case "k":
+		m.skillVP.LineUp(1)
+	case "q":
+		m.overlay = overlayNone
+		return m, nil
 	}
 	return m, nil
 }
@@ -513,6 +579,35 @@ func closeSession(sessionID string) tea.Cmd {
 	}
 }
 
+// spawnSessionWithCommand spawns a tmux session running the given command instead of bare claude.
+func spawnSessionWithCommand(name, rootDir, command string, sessionCount int) tea.Cmd {
+	return func() tea.Msg {
+		s := session.NewSession(name, sessionCount+1)
+		if _, err := os.Stat(rootDir); err != nil {
+			return errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
+		}
+		if err := tmux.CreateWithCommand(s.ID, rootDir, command); err != nil {
+			return errMsg{fmt.Errorf("create session: %w", err)}
+		}
+		return sessionSpawnedMsg{sess: s}
+	}
+}
+
+// runSkillOutput runs a skill command as a subprocess and returns its combined output.
+// Best-effort: errors are captured and shown in the overlay.
+func runSkillOutput(sk config.SkillConfig, rootDir string) tea.Cmd {
+	return func() tea.Msg {
+		parts := strings.Fields(sk.Command)
+		if len(parts) == 0 {
+			return skillOutputMsg{name: sk.Name, err: fmt.Errorf("empty command")}
+		}
+		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Dir = rootDir
+		out, err := cmd.CombinedOutput()
+		return skillOutputMsg{name: sk.Name, output: string(out), err: err}
+	}
+}
+
 // autoNameFromContent calls claude -p to summarize the pane content into a short session name.
 // Returns nil on any failure — auto-naming is best-effort.
 func autoNameFromContent(sessionID, paneContent string) tea.Cmd {
@@ -633,6 +728,8 @@ func (m *Model) View() string {
 		return renderPark(m.parkInput, m.width, m.height)
 	case overlayRename:
 		return renderRename(m.renameInput, m.width, m.height)
+	case overlaySkillOutput:
+		return renderSkillOutput(m.skillName, m.skillOutput, m.skillRunning, m.skillVP, m.tick, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
@@ -650,7 +747,7 @@ func (m *Model) View() string {
 
 	var mainContent string
 	if m.sidebarOpen {
-		sidebar := renderSidebar(m.sessions, m.activeIdx, m.sidebarCursor, mainHeight, m.tick, m.sidebarFocused)
+		sidebar := renderSidebar(m.sessions, m.cfg.Skills, m.activeIdx, m.sidebarCursor, mainHeight, m.tick, m.sidebarFocused)
 		// Left border: always present, cyan when sidebar is focused
 		sidebarBorderColor := lipgloss.Color("238")
 		if m.sidebarFocused {
