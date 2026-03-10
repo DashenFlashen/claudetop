@@ -492,7 +492,7 @@ func (m *Model) View() string {
 
 	var mainContent string
 	if m.sidebarOpen {
-		sidebar := renderSidebar(m.sessions, m.activeIdx, mainHeight, m.tick)
+		sidebar := renderSidebar(m.sessions, m.activeIdx, mainHeight, m.tick, m.sidebarFocused)
 		// Separator column
 		sep := ""
 		for i := 0; i < mainHeight; i++ {
