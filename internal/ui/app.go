@@ -359,25 +359,25 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "x":
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
 			m.overlay = overlayCloseConfirm
 		}
 	case "p":
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && !m.sessions[m.activeIdx].Parked {
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) && !m.sessions[m.sidebarCursor].Parked {
 			m.overlay = overlayPark
 			m.parkInput = newParkInput()
 			return m, textinput.Blink
 		}
 	case "r":
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
 			m.overlay = overlayRename
-			m.renameInput = newRenameInput(m.sessions[m.activeIdx].Name)
+			m.renameInput = newRenameInput(m.sessions[m.sidebarCursor].Name)
 			return m, textinput.Blink
 		}
 	case "u":
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && m.sessions[m.activeIdx].Parked {
-			m.sessions[m.activeIdx].Parked = false
-			m.sessions[m.activeIdx].ParkNote = ""
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) && m.sessions[m.sidebarCursor].Parked {
+			m.sessions[m.sidebarCursor].Parked = false
+			m.sessions[m.sidebarCursor].ParkNote = ""
 			m.store.Sessions = m.sessions
 			m.saveState()
 		}
@@ -397,9 +397,9 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleParkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
-			m.sessions[m.activeIdx].Parked = true
-			m.sessions[m.activeIdx].ParkNote = strings.TrimSpace(m.parkInput.Value())
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			m.sessions[m.sidebarCursor].Parked = true
+			m.sessions[m.sidebarCursor].ParkNote = strings.TrimSpace(m.parkInput.Value())
 			m.store.Sessions = m.sessions
 			m.saveState()
 		}
@@ -419,8 +419,8 @@ func (m *Model) handleRenameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
 		name := strings.TrimSpace(m.renameInput.Value())
-		if name != "" && m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
-			m.sessions[m.activeIdx].Name = name
+		if name != "" && m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			m.sessions[m.sidebarCursor].Name = name
 			m.store.Sessions = m.sessions
 			m.saveState()
 		}
@@ -460,8 +460,8 @@ func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.overlay = overlayNone
 	if msg.String() == "y" || msg.String() == "Y" {
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
-			return m, closeSession(m.sessions[m.activeIdx].ID)
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			return m, closeSession(m.sessions[m.sidebarCursor].ID)
 		}
 	}
 	return m, nil
@@ -625,8 +625,8 @@ func (m *Model) View() string {
 		return renderNewSession(m.nameInput, m.width, m.height)
 	case overlayCloseConfirm:
 		name := ""
-		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
-			name = m.sessions[m.activeIdx].DisplayName()
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			name = m.sessions[m.sidebarCursor].DisplayName()
 		}
 		return renderConfirm(fmt.Sprintf("Kill session %q? (y/N)", name), m.width, m.height)
 	case overlayPark:
