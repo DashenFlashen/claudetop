@@ -26,7 +26,7 @@ var (
 )
 
 // renderStatusBar returns the top status line string.
-func renderStatusBar(sessions []*session.Session, width int, statusMsg string) string {
+func renderStatusBar(sessions []*session.Session, inboxCount int, width int, statusMsg string) string {
 	total := len(sessions)
 	needsInput := 0
 	for _, s := range sessions {
@@ -40,6 +40,15 @@ func renderStatusBar(sessions []*session.Session, width int, statusMsg string) s
 	if needsInput > 0 {
 		left += "  " + needsInputStyle.Render(fmt.Sprintf("● %d needs input", needsInput))
 	}
+
+	inboxBadgeStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("214"))
+
+	if inboxCount > 0 {
+		left += "  " + inboxBadgeStyle.Render(fmt.Sprintf("[INBOX: %d]", inboxCount))
+	}
+
 	if statusMsg != "" {
 		left += "  " + lipgloss.NewStyle().
 			Background(lipgloss.Color("235")).

@@ -947,7 +947,8 @@ func (m *Model) View() string {
 		return renderInbox(m.store.InboxItems, m.inboxCursor, m.width, m.height)
 	}
 
-	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
+	activeInbox := len(activeInboxItems(m.store.InboxItems))
+	statusBar := renderStatusBar(m.sessions, activeInbox, m.width, m.statusMsg)
 	mainHeight := m.height - 2
 
 	// Viewport border: green when session focused, dim when sidebar focused
