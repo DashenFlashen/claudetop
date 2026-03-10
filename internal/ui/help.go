@@ -49,6 +49,8 @@ var helpEntries = []helpEntry{
 	{"u", "Unpark session"},
 	{"r", "Rename session"},
 	{"R", "Auto-name session from pane content"},
+	{"c", "Capture note to inbox"},
+	{"b", "Open inbox"},
 	{"", ""},
 	{"q", "Quit (sessions keep running)"},
 	{"Q", "Quit and kill all sessions"},

@@ -991,7 +991,7 @@ func (m *Model) View() string {
 			Bold(true).
 			Padding(0, 1)
 		modeBadge = "SIDEBAR"
-		hintText = "  Esc/Tab: session   j/k: navigate   n new   x close   r rename   R auto-name   ? help"
+		hintText = "  Esc/Tab: session   j/k: navigate   n new   x close   r rename   R auto-name   c capture   b inbox   ? help"
 	} else {
 		badgeStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("34")).
