@@ -23,6 +23,10 @@ var (
 	needsInputStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("235")).
 			Foreground(lipgloss.Color("196"))
+
+	inboxBadgeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("235")).
+			Foreground(lipgloss.Color("214"))
 )
 
 // renderStatusBar returns the top status line string.
@@ -40,10 +44,6 @@ func renderStatusBar(sessions []*session.Session, inboxCount int, width int, sta
 	if needsInput > 0 {
 		left += "  " + needsInputStyle.Render(fmt.Sprintf("● %d needs input", needsInput))
 	}
-
-	inboxBadgeStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("235")).
-		Foreground(lipgloss.Color("214"))
 
 	if inboxCount > 0 {
 		left += "  " + inboxBadgeStyle.Render(fmt.Sprintf("[INBOX: %d]", inboxCount))
