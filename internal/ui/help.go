@@ -19,7 +19,7 @@ var (
 
 	helpKeyStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("220")).
-			Width(10)
+			Width(20)
 
 	helpDescStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("250"))
@@ -34,24 +34,26 @@ type helpEntry struct {
 }
 
 var helpEntries = []helpEntry{
-	{"Always", ""},
-	{"\\", "Toggle sidebar"},
-	{"n", "New session"},
+	{"Session mode", ""},
+	{"Tab", "Focus sidebar (enter command mode)"},
+	{"\\", "Toggle sidebar visibility"},
+	{"", ""},
+	{"Sidebar mode", ""},
+	{"Tab / Esc / Enter", "Return to session"},
+	{"j / k / ↑ / ↓", "Navigate sessions"},
+	{"1–9", "Jump to session by number"},
+	{"", ""},
+	{"n", "New blank session"},
+	{"N", "New session with prompt editor"},
 	{"x", "Close session (confirm)"},
+	{"p", "Park session (optional note)"},
+	{"u", "Unpark session"},
+	{"r", "Rename session"},
 	{"", ""},
-	{"; prefix", ""},
-	{";1-9", "Switch to session by number"},
-	{";] / ;[", "Next / prev session"},
-	{";?", "Help"},
-	{";n", "New session"},
-	{";q", "Quit (sessions keep running)"},
-	{";Q", "Quit and kill all sessions"},
-	{";e", "Edit root CLAUDE.md in $EDITOR"},
-	{"", ""},
-	{"Sidebar only", ""},
-	{"1-9 / j / k", "Navigate sessions"},
-	{"", ""},
-	{"Esc", "Close overlay"},
+	{"q", "Quit (sessions keep running)"},
+	{"Q", "Quit and kill all sessions"},
+	{"e", "Edit root CLAUDE.md in $EDITOR"},
+	{"?", "Toggle this help"},
 }
 
 // renderHelp renders the help overlay centered in the terminal.
