@@ -135,6 +135,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeViewport()
+		m.resizeSkillVP()
 		return m, nil
 
 	case tickMsg:
@@ -205,7 +206,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.skillOutput = msg.output
 		}
-		m.skillVP = newViewport(m.width-14, m.height-12)
+		m.resizeSkillVP()
 		m.skillVP.SetContent(m.skillOutput)
 		return m, nil
 
@@ -215,6 +216,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.Name = msg.name
 				m.store.Sessions = m.sessions
 				m.saveState()
+				m.setStatusMsg("Renamed to: " + msg.name)
 				break
 			}
 		}
@@ -380,6 +382,7 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
 			s := m.sessions[m.sidebarCursor]
 			if !s.Dead && s.PaneContent != "" {
+				m.setStatusMsg("Auto-naming session...")
 				return m, autoNameFromContent(s.ID, s.PaneContent)
 			}
 		}
@@ -429,6 +432,10 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) launchSkill(sk config.SkillConfig) (tea.Model, tea.Cmd) {
 	switch sk.Mode {
 	case "output":
+		if m.skillRunning {
+			m.setStatusMsg(sk.Name + " is already running")
+			return m, nil
+		}
 		m.overlay = overlaySkillOutput
 		m.skillName = sk.Name
 		m.skillOutput = ""
@@ -524,12 +531,16 @@ func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	m.overlay = overlayNone
-	if msg.String() == "y" || msg.String() == "Y" {
+	switch {
+	case msg.String() == "y" || msg.String() == "Y":
+		m.overlay = overlayNone
 		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
 			return m, closeSession(m.sessions[m.sidebarCursor].ID)
 		}
+	case msg.String() == "n" || msg.String() == "N" || msg.Type == tea.KeyEsc:
+		m.overlay = overlayNone
 	}
+	// All other keys ignored — accidental Enter does not cancel
 	return m, nil
 }
 
@@ -595,6 +606,7 @@ func spawnSessionWithCommand(name, rootDir, command string, sessionCount int) te
 
 // runSkillOutput runs a skill command as a subprocess and returns its combined output.
 // Best-effort: errors are captured and shown in the overlay.
+// Note: command is split on whitespace; quoted arguments with spaces are not supported.
 func runSkillOutput(sk config.SkillConfig, rootDir string) tea.Cmd {
 	return func() tea.Msg {
 		parts := strings.Fields(sk.Command)
@@ -610,7 +622,12 @@ func runSkillOutput(sk config.SkillConfig, rootDir string) tea.Cmd {
 
 // autoNameFromContent calls claude -p to summarize the pane content into a short session name.
 // Returns nil on any failure — auto-naming is best-effort.
+// Pane content is truncated to stay within OS argument length limits.
 func autoNameFromContent(sessionID, paneContent string) tea.Cmd {
+	const maxContent = 3000
+	if len(paneContent) > maxContent {
+		paneContent = paneContent[len(paneContent)-maxContent:]
+	}
 	return func() tea.Msg {
 		out, err := exec.Command("claude", "-p",
 			"Based on this terminal session content, summarize the task in 3 words max, lowercase, hyphen-separated, no punctuation. Output only the name, nothing else:\n\n"+paneContent,
@@ -671,6 +688,19 @@ func (m *Model) resizeViewport() {
 	}
 	m.viewport = newViewport(vpWidth, vpHeight)
 	m.loadSession(m.activeIdx)
+}
+
+func (m *Model) resizeSkillVP() {
+	w := m.width - skillVPWidthOffset
+	h := m.height - skillVPHeightOffset
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	m.skillVP.Width = w
+	m.skillVP.Height = h
 }
 
 func (m *Model) killAllSessions() {

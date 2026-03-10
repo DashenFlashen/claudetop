@@ -7,6 +7,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// skillVPWidthOffset and skillVPHeightOffset are the amounts to subtract from
+// the terminal dimensions to get the correct skill viewport content size.
+// They are derived from the overlay layout: centering padding (4) + inner
+// horizontal padding (4) = 8 wide; border (2) + inner vertical padding (2) +
+// title/blank/hint rows (4) + centering margin (4) = 12 tall.
+const (
+	skillVPWidthOffset  = 8
+	skillVPHeightOffset = 12
+)
+
 var (
 	skillOverlayStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
