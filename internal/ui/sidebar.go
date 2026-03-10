@@ -71,15 +71,6 @@ func statusDot(s *session.Session, tick int) string {
 }
 
 func renderSessionLine(s *session.Session, idx, activeIdx, tick int) string {
-	var dot string
-	if s.Dead {
-		dot = "✗"
-	} else if s.Parked {
-		dot = dotHollow.Render("○")
-	} else {
-		dot = statusDot(s, tick)
-	}
-
 	name := s.DisplayName()
 	maxName := sidebarWidth - 5
 	if len([]rune(name)) > maxName {
@@ -91,6 +82,12 @@ func renderSessionLine(s *session.Session, idx, activeIdx, tick int) string {
 	if s.Dead {
 		line = fmt.Sprintf(" %d ✗ %s [dead]", idx+1, name)
 	} else {
+		var dot string
+		if s.Parked {
+			dot = dotHollow.Render("○")
+		} else {
+			dot = statusDot(s, tick)
+		}
 		line = fmt.Sprintf(" %d %s %s", idx+1, dot, name)
 	}
 
