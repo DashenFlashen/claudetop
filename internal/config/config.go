@@ -14,8 +14,7 @@ type Config struct {
 }
 
 type GeneralConfig struct {
-	RootDir          string `toml:"root_dir"`
-	AutoNameSessions bool   `toml:"auto_name_sessions"`
+	RootDir string `toml:"root_dir"`
 }
 
 // Dir returns the ~/.claudetop directory path.
@@ -45,8 +44,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		General: GeneralConfig{
-			RootDir:          filepath.Dir(dir), // home is parent of ~/.claudetop
-			AutoNameSessions: true,
+			RootDir: filepath.Dir(dir), // home is parent of ~/.claudetop
 		},
 	}
 

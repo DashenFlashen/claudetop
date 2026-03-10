@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,8 +33,7 @@ type paneContentMsg struct {
 }
 
 type sessionSpawnedMsg struct {
-	sess   *session.Session
-	prompt string // empty for blank sessions
+	sess *session.Session
 }
 
 type sessionClosedMsg struct {
@@ -60,7 +58,6 @@ const (
 	overlayCloseConfirm
 	overlayPark
 	overlayRename
-	overlayPromptEditor
 )
 
 // Model is the root Bubbletea model.
@@ -78,12 +75,10 @@ type Model struct {
 	statusMsg      string    // transient message shown in status bar
 	statusMsgAt    time.Time // when statusMsg was set (for expiry)
 
-	nameInput     textinput.Model
-	parkInput     textinput.Model
-	renameInput   textinput.Model
-	promptInput   textarea.Model
-	pendingPrompt string // prompt text waiting to be sent after session spawns
-	viewport      viewport.Model
+	nameInput   textinput.Model
+	parkInput   textinput.Model
+	renameInput textinput.Model
+	viewport    viewport.Model
 
 	width  int
 	height int
@@ -193,15 +188,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.switchSession(len(m.sessions) - 1)
 		m.sidebarCursor = len(m.sessions) - 1
 		m.sidebarFocused = false
-
-		var cmds []tea.Cmd
-		if msg.prompt != "" {
-			cmds = append(cmds, sendPrompt(msg.sess.ID, msg.prompt))
-			if m.cfg.General.AutoNameSessions {
-				cmds = append(cmds, autoName(msg.sess.ID, msg.prompt))
-			}
-		}
-		return m, tea.Batch(cmds...)
+		return m, nil
 
 	case sessionRenamedMsg:
 		for _, s := range m.sessions {
@@ -281,8 +268,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleParkKey(msg)
 	case overlayRename:
 		return m.handleRenameKey(msg)
-	case overlayPromptEditor:
-		return m.handlePromptEditorKey(msg)
 	}
 
 	// Tab: toggle sidebar focus. Entering syncs cursor to active session;
@@ -370,10 +355,13 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = overlayNewSession
 		m.nameInput = newSessionInput()
 		return m, textinput.Blink
-	case "N":
-		m.overlay = overlayPromptEditor
-		m.promptInput = newPromptEditor()
-		return m, m.promptInput.Focus()
+	case "R":
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			s := m.sessions[m.sidebarCursor]
+			if !s.Dead && s.PaneContent != "" {
+				return m, autoNameFromContent(s.ID, s.PaneContent)
+			}
+		}
 	case "x":
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
 			m.overlay = overlayCloseConfirm
@@ -452,27 +440,6 @@ func (m *Model) handleRenameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *Model) handlePromptEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlS:
-		prompt := strings.TrimSpace(m.promptInput.Value())
-		if prompt == "" {
-			m.overlay = overlayNone
-			return m, nil
-		}
-		name := m.uniqueName(fmt.Sprintf("session-%d", len(m.sessions)+1))
-		m.overlay = overlayNone
-		return m, spawnSession(name, m.cfg.General.RootDir, prompt, len(m.sessions))
-	case tea.KeyEsc:
-		m.overlay = overlayNone
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.promptInput, cmd = m.promptInput.Update(msg)
-	return m, cmd
-}
-
 func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
@@ -482,7 +449,7 @@ func (m *Model) handleNewSessionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		name = m.uniqueName(name)
 		m.overlay = overlayNone
-		return m, spawnSession(name, m.cfg.General.RootDir, "", len(m.sessions))
+		return m, spawnSession(name, m.cfg.General.RootDir, len(m.sessions))
 
 	case tea.KeyEsc:
 		m.overlay = overlayNone
@@ -530,7 +497,7 @@ func capturePane(sessionID string) tea.Cmd {
 	}
 }
 
-func spawnSession(name, rootDir, prompt string, sessionCount int) tea.Cmd {
+func spawnSession(name, rootDir string, sessionCount int) tea.Cmd {
 	return func() tea.Msg {
 		s := session.NewSession(name, sessionCount+1)
 		if _, err := os.Stat(rootDir); err != nil {
@@ -539,7 +506,7 @@ func spawnSession(name, rootDir, prompt string, sessionCount int) tea.Cmd {
 		if err := tmux.Create(s.ID, rootDir); err != nil {
 			return errMsg{fmt.Errorf("create session: %w", err)}
 		}
-		return sessionSpawnedMsg{sess: s, prompt: prompt}
+		return sessionSpawnedMsg{sess: s}
 	}
 }
 
@@ -550,26 +517,12 @@ func closeSession(sessionID string) tea.Cmd {
 	}
 }
 
-// sendPrompt sends text to a tmux session after a startup delay.
-func sendPrompt(sessionID, prompt string) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(2 * time.Second)
-		if err := tmux.SendLiteralKey(sessionID, prompt); err != nil {
-			return errMsg{err}
-		}
-		if err := tmux.SendKeys(sessionID, "Enter"); err != nil {
-			return errMsg{err}
-		}
-		return nil
-	}
-}
-
-// autoName calls claude -p to summarize the prompt into a short session name.
+// autoNameFromContent calls claude -p to summarize the pane content into a short session name.
 // Returns nil on any failure — auto-naming is best-effort.
-func autoName(sessionID, prompt string) tea.Cmd {
+func autoNameFromContent(sessionID, paneContent string) tea.Cmd {
 	return func() tea.Msg {
 		out, err := exec.Command("claude", "-p",
-			"Summarize this task in 3 words max, lowercase, hyphen-separated, no punctuation. Output only the name, nothing else: "+prompt,
+			"Based on this terminal session content, summarize the task in 3 words max, lowercase, hyphen-separated, no punctuation. Output only the name, nothing else:\n\n"+paneContent,
 		).Output()
 		if err != nil {
 			return nil
@@ -681,8 +634,6 @@ func (m *Model) View() string {
 		return renderPark(m.parkInput, m.width, m.height)
 	case overlayRename:
 		return renderRename(m.renameInput, m.width, m.height)
-	case overlayPromptEditor:
-		return renderPromptEditor(m.promptInput, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)

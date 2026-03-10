@@ -17,9 +17,6 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	if cfg.General.RootDir != tmp {
 		t.Errorf("expected RootDir=%q, got %q", tmp, cfg.General.RootDir)
 	}
-	if !cfg.General.AutoNameSessions {
-		t.Error("expected AutoNameSessions=true by default")
-	}
 }
 
 func TestLoadFromFile(t *testing.T) {
@@ -31,7 +28,7 @@ func TestLoadFromFile(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	content := "[general]\nroot_dir = \"/tmp/repos\"\nauto_name_sessions = false\n"
+	content := "[general]\nroot_dir = \"/tmp/repos\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -42,8 +39,5 @@ func TestLoadFromFile(t *testing.T) {
 	}
 	if cfg.General.RootDir != "/tmp/repos" {
 		t.Errorf("expected /tmp/repos, got %q", cfg.General.RootDir)
-	}
-	if cfg.General.AutoNameSessions {
-		t.Error("expected AutoNameSessions=false")
 	}
 }
