@@ -52,6 +52,7 @@ const (
 	overlayNewSession
 	overlayCloseConfirm
 	overlayPark
+	overlayRename
 )
 
 // Model is the root Bubbletea model.
@@ -68,9 +69,10 @@ type Model struct {
 	statusMsg      string    // transient message shown in status bar
 	statusMsgAt    time.Time // when statusMsg was set (for expiry)
 
-	nameInput textinput.Model
-	parkInput textinput.Model
-	viewport  viewport.Model
+	nameInput   textinput.Model
+	parkInput   textinput.Model
+	renameInput textinput.Model
+	viewport    viewport.Model
 
 	width  int
 	height int
@@ -235,6 +237,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCloseConfirmKey(msg)
 	case overlayPark:
 		return m.handleParkKey(msg)
+	case overlayRename:
+		return m.handleRenameKey(msg)
 	}
 
 	// Tab: always switch sidebar focus when no overlay is open
@@ -310,6 +314,12 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.parkInput = newParkInput()
 			return m, textinput.Blink
 		}
+	case "r":
+		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			m.overlay = overlayRename
+			m.renameInput = newRenameInput(m.sessions[m.activeIdx].Name)
+			return m, textinput.Blink
+		}
 	case "u":
 		if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) && m.sessions[m.activeIdx].Parked {
 			m.sessions[m.activeIdx].Parked = false
@@ -348,6 +358,27 @@ func (m *Model) handleParkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.parkInput, cmd = m.parkInput.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) handleRenameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.renameInput.Value())
+		if name != "" && m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
+			m.sessions[m.activeIdx].Name = name
+			m.store.Sessions = m.sessions
+			m.saveState()
+		}
+		m.overlay = overlayNone
+		return m, nil
+	case tea.KeyEsc:
+		m.overlay = overlayNone
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.renameInput, cmd = m.renameInput.Update(msg)
 	return m, cmd
 }
 
@@ -525,6 +556,8 @@ func (m *Model) View() string {
 		return renderConfirm(fmt.Sprintf("Kill session %q? (y/N)", name), m.width, m.height)
 	case overlayPark:
 		return renderPark(m.parkInput, m.width, m.height)
+	case overlayRename:
+		return renderRename(m.renameInput, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
