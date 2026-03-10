@@ -15,13 +15,20 @@ type State struct {
 	Sessions []*session.Session `json:"sessions"`
 }
 
-func path() string {
-	return filepath.Join(config.Dir(), "state.json")
+func path() (string, error) {
+	dir, err := config.Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "state.json"), nil
 }
 
 // Load reads state from disk. Returns empty state if file is missing.
 func Load() (*State, error) {
-	p := path()
+	p, err := path()
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return &State{Sessions: []*session.Session{}}, nil
@@ -42,7 +49,10 @@ func Load() (*State, error) {
 
 // Save writes state to disk atomically via a temp file rename.
 func Save(s *State) error {
-	p := path()
+	p, err := path()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}

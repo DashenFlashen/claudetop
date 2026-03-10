@@ -13,21 +13,26 @@ type Config struct {
 }
 
 type GeneralConfig struct {
-	RootDir string `toml:"root_dir"`
+	RootDir          string `toml:"root_dir"`
+	AutoNameSessions bool   `toml:"auto_name_sessions"`
 }
 
 // Dir returns the ~/.claudetop directory path.
-func Dir() string {
+func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		panic(fmt.Sprintf("claudetop: cannot determine home directory: %v", err))
+		return "", fmt.Errorf("home directory: %w", err)
 	}
-	return filepath.Join(home, ".claudetop")
+	return filepath.Join(home, ".claudetop"), nil
 }
 
 // Path returns the config file path.
-func Path() string {
-	return filepath.Join(Dir(), "config.toml")
+func Path() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.toml"), nil
 }
 
 // Load reads the config file, returning defaults if missing.
@@ -39,11 +44,15 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		General: GeneralConfig{
-			RootDir: home,
+			RootDir:          home,
+			AutoNameSessions: true,
 		},
 	}
 
-	path := Path()
+	path, err := Path()
+	if err != nil {
+		return nil, err
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return cfg, nil
 	}
@@ -57,5 +66,9 @@ func Load() (*Config, error) {
 
 // EnsureDir creates ~/.claudetop if it doesn't exist.
 func EnsureDir() error {
-	return os.MkdirAll(Dir(), 0755)
+	dir, err := Dir()
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0755)
 }
