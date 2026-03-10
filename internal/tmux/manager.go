@@ -80,6 +80,15 @@ func SendLiteralKey(id string, key string) error {
 	return nil
 }
 
+// ResizeWindow resizes the window of a tmux session to the given dimensions.
+// Best-effort: errors are ignored since the session may not exist yet.
+func ResizeWindow(id string, width, height int) {
+	name := SessionName(id)
+	exec.Command("tmux", "resize-window", "-t", name,
+		"-x", fmt.Sprintf("%d", width),
+		"-y", fmt.Sprintf("%d", height)).Run()
+}
+
 // LiveSessions returns IDs of all ct- prefixed tmux sessions.
 func LiveSessions() ([]string, error) {
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")

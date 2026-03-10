@@ -157,6 +157,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.resizeViewport()
 		m.resizeSkillVP()
+		m.resizeAllSessions()
 		return m, nil
 
 	case tickMsg:
@@ -225,6 +226,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.switchSession(len(m.sessions) - 1)
 		m.sidebarCursor = len(m.sessions) - 1
 		m.sidebarFocused = false
+		tmux.ResizeWindow(msg.sess.ID, m.viewport.Width, m.viewport.Height)
 		return m, nil
 
 	case inboxSessionSpawnedMsg:
@@ -235,6 +237,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.switchSession(len(m.sessions) - 1)
 		m.sidebarCursor = len(m.sessions) - 1
 		m.sidebarFocused = false
+		tmux.ResizeWindow(msg.sess.ID, m.viewport.Width, m.viewport.Height)
 		m.pendingInboxSend = &pendingInboxSend{
 			sessionID: msg.sess.ID,
 			content:   msg.content,
@@ -866,6 +869,16 @@ func (m *Model) resizeViewport() {
 	}
 	m.viewport = newViewport(vpWidth, vpHeight)
 	m.loadSession(m.activeIdx)
+}
+
+func (m *Model) resizeAllSessions() {
+	w := m.viewport.Width
+	h := m.viewport.Height
+	for _, s := range m.sessions {
+		if !s.Dead {
+			tmux.ResizeWindow(s.ID, w, h)
+		}
+	}
 }
 
 func (m *Model) resizeSkillVP() {
