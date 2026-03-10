@@ -150,6 +150,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if s.PaneContent != msg.content {
 					s.PaneContent = msg.content
 					s.LastOutputAt = time.Now()
+					s.Status = session.Detect(s.PaneContent, s.LastOutputAt, s.CreatedAt, s.Status)
 				}
 				// If this is the active session, refresh the viewport
 				if m.activeIdx >= 0 && m.sessions[m.activeIdx].ID == msg.sessionID {
@@ -194,6 +195,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							break
 						}
 					}
+					// activeIdx may have changed; reload viewport with correct session
+					m.loadSession(m.activeIdx)
 				}
 				break
 			}

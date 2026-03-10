@@ -50,6 +50,26 @@ func TestDetectError(t *testing.T) {
 	}
 }
 
+func TestDetectPermission(t *testing.T) {
+	createdAt := time.Now().Add(-30 * time.Second)
+	lastOutput := time.Now().Add(-10 * time.Second)
+	output := "Run bash command: ls -la (y/N)"
+	status := Detect(output, lastOutput, createdAt, StatusDone)
+	if status != StatusPermission {
+		t.Errorf("expected Permission, got %v", status)
+	}
+}
+
+func TestDetectErrorInMultilineOutput(t *testing.T) {
+	createdAt := time.Now().Add(-30 * time.Second)
+	lastOutput := time.Now().Add(-5 * time.Second)
+	output := "Reading file...\nAnalyzing contents...\nChecking imports...\nError: module not found\nAborting."
+	status := Detect(output, lastOutput, createdAt, StatusWorking)
+	if status != StatusError {
+		t.Errorf("expected Error for multi-line output with error line, got %v", status)
+	}
+}
+
 func TestDetectDone(t *testing.T) {
 	createdAt := time.Now().Add(-30 * time.Second)
 	lastOutput := time.Now().Add(-30 * time.Second)
