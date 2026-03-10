@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"claudetop/internal/tmux"
@@ -50,6 +52,48 @@ func tmuxKeyName(msg tea.KeyMsg) (name string, literal bool) {
 		return msg.String(), true
 	default:
 		return msg.String(), true
+	}
+}
+
+// scheduleKeyFlush returns a one-shot 15ms timer that fires flushKeyMsg,
+// causing any buffered rune characters to be sent to tmux in one subprocess call.
+func scheduleKeyFlush(sessionID string) tea.Cmd {
+	return tea.Tick(15*time.Millisecond, func(t time.Time) tea.Msg {
+		return flushKeyMsg{sessionID: sessionID}
+	})
+}
+
+// sendLiteralText sends a string of text to a tmux session as a single subprocess call.
+func sendLiteralText(sessionID, text string) tea.Cmd {
+	return func() tea.Msg {
+		if text != "" {
+			tmux.SendLiteralKey(sessionID, text)
+		}
+		return nil
+	}
+}
+
+// forwardKeyWithFlush flushes any buffered text then sends a special (non-rune) key,
+// both in a single goroutine to guarantee ordering.
+func forwardKeyWithFlush(sessionID, buffer string, msg tea.KeyMsg) tea.Cmd {
+	return func() tea.Msg {
+		if buffer != "" {
+			tmux.SendLiteralKey(sessionID, buffer)
+		}
+		name, literal := tmuxKeyName(msg)
+		if name == "" {
+			return nil
+		}
+		var err error
+		if literal {
+			err = tmux.SendLiteralKey(sessionID, name)
+		} else {
+			err = tmux.SendKeys(sessionID, name)
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		return nil
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 // Internal message types
 
 type tickMsg time.Time
+type flushKeyMsg struct{ sessionID string }
 
 type paneContentMsg struct {
 	sessionID string
@@ -87,6 +88,8 @@ type Model struct {
 	skillOutput  string         // output from completed skill run ("" = still running)
 	skillRunning bool           // true while subprocess is executing
 	skillVP      viewport.Model // scrollable viewport for skill output
+
+	keyBuffer string // accumulated rune keystrokes pending tmux send
 
 	width  int
 	height int
@@ -266,6 +269,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setStatusMsg("Error: " + msg.err.Error())
 		return m, nil
 
+	case flushKeyMsg:
+		if m.keyBuffer != "" {
+			buf := m.keyBuffer
+			m.keyBuffer = ""
+			return m, sendLiteralText(msg.sessionID, buf)
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -331,10 +342,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSidebarKey(msg)
 	}
 
-	// Session focused: forward everything to tmux
+	// Session focused: forward everything to tmux.
+	// Rune keys are buffered and flushed together to reduce subprocess spawns.
 	if m.activeIdx >= 0 && m.activeIdx < len(m.sessions) {
 		s := m.sessions[m.activeIdx]
-		return m, forwardKey(s.ID, msg)
+		if msg.Type == tea.KeyRunes {
+			m.keyBuffer += msg.String()
+			return m, scheduleKeyFlush(s.ID)
+		}
+		buf := m.keyBuffer
+		m.keyBuffer = ""
+		return m, forwardKeyWithFlush(s.ID, buf, msg)
 	}
 	return m, nil
 }
@@ -646,6 +664,7 @@ func autoNameFromContent(sessionID, paneContent string) tea.Cmd {
 // Helpers
 
 func (m *Model) switchSession(idx int) {
+	m.keyBuffer = ""
 	m.activeIdx = idx
 	m.loadSession(idx)
 }
