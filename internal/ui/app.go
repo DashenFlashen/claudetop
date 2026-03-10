@@ -19,10 +19,6 @@ import (
 	"claudetop/internal/tmux"
 )
 
-var separatorStyle = lipgloss.NewStyle().
-	Background(lipgloss.Color("236")).
-	Foreground(lipgloss.Color("240"))
-
 // Internal message types
 
 type tickMsg time.Time
@@ -564,11 +560,14 @@ func (m *Model) loadSession(idx int) {
 }
 
 func (m *Model) resizeViewport() {
-	vpWidth := m.width
+	// -2 for viewport left+right border (always present, colour changes with focus)
+	vpWidth := m.width - 2
 	if m.sidebarOpen {
-		vpWidth -= sidebarWidth + 2 // +1 for left border, +1 for separator column
+		// -1 for sidebar ThickBorder left; viewport left border replaces separator column
+		vpWidth -= sidebarWidth + 1
 	}
-	vpHeight := m.height - 2 // status bar (1) + hint line (1)
+	// -2 for viewport top+bottom border; -2 for status bar + hint line
+	vpHeight := m.height - 4
 	if vpWidth < 1 {
 		vpWidth = 1
 	}
@@ -639,31 +638,32 @@ func (m *Model) View() string {
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
 	mainHeight := m.height - 2
 
+	// Viewport border: green when session focused, dim when sidebar focused
+	vpBorderColor := lipgloss.Color("237")
+	if !m.sidebarFocused {
+		vpBorderColor = lipgloss.Color("82")
+	}
+	vp := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(vpBorderColor).
+		Render(m.viewport.View())
+
 	var mainContent string
 	if m.sidebarOpen {
 		sidebar := renderSidebar(m.sessions, m.activeIdx, m.sidebarCursor, mainHeight, m.tick, m.sidebarFocused)
 		// Left border: always present, cyan when sidebar is focused
-		borderColor := lipgloss.Color("238")
+		sidebarBorderColor := lipgloss.Color("238")
 		if m.sidebarFocused {
-			borderColor = lipgloss.Color("39")
+			sidebarBorderColor = lipgloss.Color("39")
 		}
 		sidebar = lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder(), false, false, false, true).
-			BorderForeground(borderColor).
+			BorderForeground(sidebarBorderColor).
 			BorderBackground(lipgloss.Color("236")).
 			Render(sidebar)
-		// Separator column
-		sep := ""
-		for i := 0; i < mainHeight; i++ {
-			if i > 0 {
-				sep += "\n"
-			}
-			sep += separatorStyle.Render("│")
-		}
-		vp := m.viewport.View()
-		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, sep, vp)
+		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, vp)
 	} else {
-		mainContent = m.viewport.View()
+		mainContent = vp
 	}
 
 	hintStyle := lipgloss.NewStyle().
