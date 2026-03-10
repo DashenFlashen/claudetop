@@ -50,6 +50,52 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestInboxItemSaveAndLoad(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".claudetop"), 0755)
+
+	item := NewInboxItem("fix the thing", "manual")
+	s := &State{
+		Sessions:   []*session.Session{},
+		InboxItems: []*InboxItem{item},
+	}
+
+	if err := Save(s); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(loaded.InboxItems) != 1 {
+		t.Fatalf("expected 1 inbox item, got %d", len(loaded.InboxItems))
+	}
+	if loaded.InboxItems[0].Content != "fix the thing" {
+		t.Errorf("expected Content=%q, got %q", "fix the thing", loaded.InboxItems[0].Content)
+	}
+	if loaded.InboxItems[0].Source != "manual" {
+		t.Errorf("expected Source=%q, got %q", "manual", loaded.InboxItems[0].Source)
+	}
+}
+
+func TestLoadEmptyInboxWhenMissing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if s.InboxItems == nil {
+		t.Error("expected InboxItems to be non-nil slice")
+	}
+	if len(s.InboxItems) != 0 {
+		t.Errorf("expected 0 inbox items, got %d", len(s.InboxItems))
+	}
+}
+
 func TestSaveAndLoadParkedSession(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
