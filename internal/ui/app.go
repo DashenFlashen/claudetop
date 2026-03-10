@@ -720,16 +720,37 @@ func capturePane(sessionID string) tea.Cmd {
 	}
 }
 
+// newSession creates a tmux session running claude and returns the session, or an error message.
+func newSession(name, rootDir string, sessionCount int) (*session.Session, tea.Msg) {
+	s := session.NewSession(name, sessionCount+1)
+	if _, err := os.Stat(rootDir); err != nil {
+		return nil, errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
+	}
+	if err := tmux.Create(s.ID, rootDir); err != nil {
+		return nil, errMsg{fmt.Errorf("create session: %w", err)}
+	}
+	return s, nil
+}
+
 func spawnSession(name, rootDir string, sessionCount int) tea.Cmd {
 	return func() tea.Msg {
-		s := session.NewSession(name, sessionCount+1)
-		if _, err := os.Stat(rootDir); err != nil {
-			return errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
-		}
-		if err := tmux.Create(s.ID, rootDir); err != nil {
-			return errMsg{fmt.Errorf("create session: %w", err)}
+		s, errM := newSession(name, rootDir, sessionCount)
+		if errM != nil {
+			return errM
 		}
 		return sessionSpawnedMsg{sess: s}
+	}
+}
+
+// spawnSessionForInbox creates a new session and returns inboxSessionSpawnedMsg so the
+// model can schedule the deferred content send.
+func spawnSessionForInbox(name, rootDir, content string, sessionCount int) tea.Cmd {
+	return func() tea.Msg {
+		s, errM := newSession(name, rootDir, sessionCount)
+		if errM != nil {
+			return errM
+		}
+		return inboxSessionSpawnedMsg{sess: s, content: content}
 	}
 }
 
@@ -746,21 +767,6 @@ func sendInboxContent(sessionID, content string) tea.Cmd {
 		tmux.SendLiteralKey(sessionID, content)
 		tmux.SendKeys(sessionID, "Enter")
 		return nil
-	}
-}
-
-// spawnSessionForInbox creates a new session and returns inboxSessionSpawnedMsg so the
-// model can schedule the deferred content send.
-func spawnSessionForInbox(name, rootDir, content string, sessionCount int) tea.Cmd {
-	return func() tea.Msg {
-		s := session.NewSession(name, sessionCount+1)
-		if _, err := os.Stat(rootDir); err != nil {
-			return errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
-		}
-		if err := tmux.Create(s.ID, rootDir); err != nil {
-			return errMsg{fmt.Errorf("create session: %w", err)}
-		}
-		return inboxSessionSpawnedMsg{sess: s, content: content}
 	}
 }
 
