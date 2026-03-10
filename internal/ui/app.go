@@ -669,13 +669,27 @@ func (m *Model) View() string {
 	hintStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Background(lipgloss.Color("0"))
-	var hintText string
+	var badgeStyle lipgloss.Style
+	var modeBadge, hintText string
 	if m.sidebarFocused {
-		hintText = " Esc: cancel   j/k ↑↓: navigate   Enter/Tab: select   n new   x close   ? help"
+		badgeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("39")).
+			Foreground(lipgloss.Color("0")).
+			Bold(true).
+			Padding(0, 1)
+		modeBadge = "SIDEBAR"
+		hintText = "  Esc/Tab: session   j/k: navigate   n new   x close   r rename   R auto-name   ? help"
 	} else {
-		hintText = " Tab: open sidebar   \\ toggle   (all keys → Claude Code)"
+		badgeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("34")).
+			Foreground(lipgloss.Color("0")).
+			Bold(true).
+			Padding(0, 1)
+		modeBadge = "SESSION"
+		hintText = "  Tab: sidebar   \\ toggle   (keys → Claude Code)"
 	}
-	hint := hintStyle.Width(m.width).Render(hintText)
+	badge := badgeStyle.Render(modeBadge)
+	hint := lipgloss.JoinHorizontal(lipgloss.Top, badge, hintStyle.Width(m.width-lipgloss.Width(badge)).Render(hintText))
 
 	return lipgloss.JoinVertical(lipgloss.Left, statusBar, mainContent, hint)
 }
