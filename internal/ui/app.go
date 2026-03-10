@@ -51,6 +51,18 @@ type skillOutputMsg struct {
 	err    error
 }
 
+type inboxSessionSpawnedMsg struct {
+	sess    *session.Session
+	content string
+}
+
+// pendingInboxSend holds a scheduled tmux content send for an inbox-spawned session.
+type pendingInboxSend struct {
+	sessionID string
+	content   string
+	sendAt    time.Time
+}
+
 // overlay represents which (if any) overlay is currently shown.
 type overlay int
 
@@ -94,6 +106,8 @@ type Model struct {
 	keyBuffer    string         // accumulated rune keystrokes pending tmux send
 	captureInput textinput.Model
 	inboxCursor  int
+
+	pendingInboxSend *pendingInboxSend
 
 	width  int
 	height int
@@ -176,6 +190,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Fire deferred inbox content send when Claude has had time to start
+		if m.pendingInboxSend != nil && time.Now().After(m.pendingInboxSend.sendAt) {
+			send := m.pendingInboxSend
+			m.pendingInboxSend = nil
+			cmds = append(cmds, sendInboxContent(send.sessionID, send.content))
+		}
+
 		return m, tea.Batch(cmds...)
 
 	case paneContentMsg:
@@ -204,6 +225,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.switchSession(len(m.sessions) - 1)
 		m.sidebarCursor = len(m.sessions) - 1
 		m.sidebarFocused = false
+		return m, nil
+
+	case inboxSessionSpawnedMsg:
+		m.statusMsg = ""
+		m.sessions = append(m.sessions, msg.sess)
+		m.store.Sessions = m.sessions
+		m.saveState()
+		m.switchSession(len(m.sessions) - 1)
+		m.sidebarCursor = len(m.sessions) - 1
+		m.sidebarFocused = false
+		m.pendingInboxSend = &pendingInboxSend{
+			sessionID: msg.sess.ID,
+			content:   msg.content,
+			sendAt:    time.Now().Add(2 * time.Second),
+		}
 		return m, nil
 
 	case skillOutputMsg:
@@ -523,10 +559,62 @@ func (m *Model) handleCaptureKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleInboxKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
+	active := activeInboxItems(m.store.InboxItems)
+
+	switch msg.Type {
+	case tea.KeyEsc:
 		m.overlay = overlayNone
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "j":
+		if len(active) > 0 {
+			m.inboxCursor = (m.inboxCursor + 1) % len(active)
+		}
+	case "k":
+		if len(active) > 0 {
+			m.inboxCursor = (m.inboxCursor - 1 + len(active)) % len(active)
+		}
+	case "s":
+		if m.inboxCursor < len(active) {
+			item := active[m.inboxCursor]
+			m.removeInboxItem(item.ID)
+			m.overlay = overlayNone
+			name := m.uniqueName("inbox")
+			return m, spawnSessionForInbox(name, m.cfg.General.RootDir, item.Content, len(m.sessions))
+		}
+	case "d":
+		if m.inboxCursor < len(active) {
+			m.removeInboxItem(active[m.inboxCursor].ID)
+			newActive := activeInboxItems(m.store.InboxItems)
+			if m.inboxCursor >= len(newActive) && m.inboxCursor > 0 {
+				m.inboxCursor--
+			}
+		}
+	case "p":
+		if m.inboxCursor < len(active) {
+			active[m.inboxCursor].Parked = true
+			m.saveState()
+			newActive := activeInboxItems(m.store.InboxItems)
+			if m.inboxCursor >= len(newActive) && m.inboxCursor > 0 {
+				m.inboxCursor--
+			}
+		}
 	}
 	return m, nil
+}
+
+// removeInboxItem removes an inbox item by ID and saves state.
+func (m *Model) removeInboxItem(id string) {
+	items := m.store.InboxItems
+	for i, item := range items {
+		if item.ID == id {
+			m.store.InboxItems = append(items[:i], items[i+1:]...)
+			m.saveState()
+			return
+		}
+	}
 }
 
 func (m *Model) handleParkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -649,6 +737,30 @@ func closeSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		err := tmux.Kill(sessionID)
 		return sessionClosedMsg{sessionID: sessionID, err: err}
+	}
+}
+
+// sendInboxContent sends captured text to a tmux session as if typed by the user.
+func sendInboxContent(sessionID, content string) tea.Cmd {
+	return func() tea.Msg {
+		tmux.SendLiteralKey(sessionID, content)
+		tmux.SendKeys(sessionID, "Enter")
+		return nil
+	}
+}
+
+// spawnSessionForInbox creates a new session and returns inboxSessionSpawnedMsg so the
+// model can schedule the deferred content send.
+func spawnSessionForInbox(name, rootDir, content string, sessionCount int) tea.Cmd {
+	return func() tea.Msg {
+		s := session.NewSession(name, sessionCount+1)
+		if _, err := os.Stat(rootDir); err != nil {
+			return errMsg{fmt.Errorf("root_dir %q does not exist: %w", rootDir, err)}
+		}
+		if err := tmux.Create(s.ID, rootDir); err != nil {
+			return errMsg{fmt.Errorf("create session: %w", err)}
+		}
+		return inboxSessionSpawnedMsg{sess: s, content: content}
 	}
 }
 
@@ -825,6 +937,8 @@ func (m *Model) View() string {
 		return renderSkillOutput(m.skillName, m.skillOutput, m.skillRunning, m.skillVP, m.tick, m.width, m.height)
 	case overlayCapture:
 		return renderCapture(m.captureInput, m.width, m.height)
+	case overlayInbox:
+		return renderInbox(m.store.InboxItems, m.inboxCursor, m.width, m.height)
 	}
 
 	statusBar := renderStatusBar(m.sessions, m.width, m.statusMsg)
