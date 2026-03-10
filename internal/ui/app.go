@@ -19,6 +19,10 @@ import (
 	"claudetop/internal/tmux"
 )
 
+var separatorStyle = lipgloss.NewStyle().
+	Background(lipgloss.Color("236")).
+	Foreground(lipgloss.Color("240"))
+
 // Internal message types
 
 type tickMsg time.Time
@@ -32,7 +36,10 @@ type sessionSpawnedMsg struct {
 	sess *session.Session
 }
 
-type sessionClosedMsg struct{ sessionID string }
+type sessionClosedMsg struct {
+	sessionID string
+	err       error // non-nil if tmux kill failed
+}
 
 type errMsg struct{ err error }
 
@@ -158,16 +165,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = "" // clear any error
 		m.sessions = append(m.sessions, msg.sess)
 		m.store.Sessions = m.sessions
-		state.Save(m.store)
+		m.saveState()
 		m.switchSession(len(m.sessions) - 1)
 		return m, nil
 
 	case sessionClosedMsg:
+		if msg.err != nil {
+			m.statusMsg = "Error: " + msg.err.Error()
+		}
 		for i, s := range m.sessions {
 			if s.ID == msg.sessionID {
 				m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
 				m.store.Sessions = m.sessions
-				state.Save(m.store)
+				m.saveState()
 				if len(m.sessions) == 0 {
 					m.activeIdx = -1
 				} else if m.activeIdx >= len(m.sessions) {
@@ -363,6 +373,14 @@ func (m *Model) handleCloseConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// saveState persists the current session list. On failure it sets m.statusMsg so
+// the user sees the error rather than silently losing state on next restart.
+func (m *Model) saveState() {
+	if err := state.Save(m.store); err != nil {
+		m.statusMsg = "Error: " + err.Error()
+	}
+}
+
 // Commands (pure functions — no model mutation)
 
 func capturePane(sessionID string) tea.Cmd {
@@ -390,8 +408,8 @@ func spawnSession(name, rootDir string, sessionCount int) tea.Cmd {
 
 func closeSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		tmux.Kill(sessionID)
-		return sessionClosedMsg{sessionID: sessionID}
+		err := tmux.Kill(sessionID)
+		return sessionClosedMsg{sessionID: sessionID, err: err}
 	}
 }
 
@@ -432,7 +450,7 @@ func (m *Model) killAllSessions() {
 	}
 	m.sessions = nil
 	m.store.Sessions = nil
-	state.Save(m.store)
+	m.saveState()
 }
 
 func (m *Model) openEditor() tea.Cmd {
@@ -491,10 +509,7 @@ func (m *Model) View() string {
 			if i > 0 {
 				sep += "\n"
 			}
-			sep += lipgloss.NewStyle().
-				Background(lipgloss.Color("236")).
-				Foreground(lipgloss.Color("240")).
-				Render("│")
+			sep += separatorStyle.Render("│")
 		}
 		vp := m.viewport.View()
 		mainContent = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, sep, vp)

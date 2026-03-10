@@ -66,15 +66,18 @@ func (s *Session) DisplayName() string {
 	return s.ID
 }
 
-// NewSession creates a session with a unique ID.
+// NewSession creates a session with a stable opaque ID and a human display name.
+// The ID is derived from the current time in nanoseconds and never changes, even if the
+// session is renamed. The Name field is the mutable display name.
 func NewSession(name string, index int) *Session {
-	id := name
-	if id == "" {
-		id = fmt.Sprintf("session-%d", index)
+	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	displayName := name
+	if displayName == "" {
+		displayName = fmt.Sprintf("session-%d", index)
 	}
 	return &Session{
 		ID:        id,
-		Name:      name,
+		Name:      displayName,
 		CreatedAt: time.Now(),
 		Status:    StatusStarting,
 	}
