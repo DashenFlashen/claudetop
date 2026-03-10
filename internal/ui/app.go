@@ -45,6 +45,11 @@ type sessionClosedMsg struct {
 
 type errMsg struct{ err error }
 
+type sessionRenamedMsg struct {
+	sessionID string
+	name      string
+}
+
 // overlay represents which (if any) overlay is currently shown.
 type overlay int
 
@@ -182,6 +187,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveState()
 		m.switchSession(len(m.sessions) - 1)
 		m.sidebarFocused = false
+
+		var cmds []tea.Cmd
+		if msg.prompt != "" {
+			cmds = append(cmds, sendPrompt(msg.sess.ID, msg.prompt))
+			if m.cfg.General.AutoNameSessions {
+				cmds = append(cmds, autoName(msg.sess.ID, msg.prompt))
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case sessionRenamedMsg:
+		for _, s := range m.sessions {
+			if s.ID == msg.sessionID {
+				s.Name = msg.name
+				m.store.Sessions = m.sessions
+				m.saveState()
+				break
+			}
+		}
 		return m, nil
 
 	case sessionClosedMsg:
@@ -488,6 +512,38 @@ func closeSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		err := tmux.Kill(sessionID)
 		return sessionClosedMsg{sessionID: sessionID, err: err}
+	}
+}
+
+// sendPrompt sends text to a tmux session after a startup delay.
+func sendPrompt(sessionID, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(2 * time.Second)
+		if err := tmux.SendLiteralKey(sessionID, prompt); err != nil {
+			return errMsg{err}
+		}
+		if err := tmux.SendKeys(sessionID, "Enter"); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
+// autoName calls claude -p to summarize the prompt into a short session name.
+// Returns nil on any failure — auto-naming is best-effort.
+func autoName(sessionID, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("claude", "-p",
+			"Summarize this task in 3 words max, lowercase, hyphen-separated, no punctuation. Output only the name, nothing else: "+prompt,
+		).Output()
+		if err != nil {
+			return nil
+		}
+		name := strings.TrimSpace(string(out))
+		if name == "" {
+			return nil
+		}
+		return sessionRenamedMsg{sessionID: sessionID, name: name}
 	}
 }
 
