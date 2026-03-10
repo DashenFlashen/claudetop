@@ -49,3 +49,33 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Errorf("expected ID=test-session, got %q", loaded.Sessions[0].ID)
 	}
 }
+
+func TestSaveAndLoadParkedSession(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	os.MkdirAll(filepath.Join(tmp, ".claudetop"), 0755)
+
+	sess := &session.Session{
+		ID:        "parked-session",
+		Name:      "milvus",
+		CreatedAt: time.Now().Truncate(time.Second),
+		Parked:    true,
+		ParkNote:  "waiting for Björn",
+	}
+	s := &State{Sessions: []*session.Session{sess}}
+
+	if err := Save(s); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !loaded.Sessions[0].Parked {
+		t.Error("expected Parked=true")
+	}
+	if loaded.Sessions[0].ParkNote != "waiting for Björn" {
+		t.Errorf("expected ParkNote=%q, got %q", "waiting for Björn", loaded.Sessions[0].ParkNote)
+	}
+}

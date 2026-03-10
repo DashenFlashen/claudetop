@@ -46,6 +46,8 @@ type Session struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	Dead      bool      `json:"dead,omitempty"`
+	Parked    bool      `json:"parked,omitempty"`
+	ParkNote  string    `json:"park_note,omitempty"`
 
 	// Runtime-only (not persisted)
 	Status       Status    `json:"-"`
