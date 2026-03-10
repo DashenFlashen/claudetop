@@ -106,8 +106,8 @@ func New(cfg *config.Config, st *state.State) *Model {
 			break
 		}
 	}
-	// Start in sidebar mode if no live sessions
-	m.sidebarFocused = m.activeIdx < 0
+	// Always start in sidebar mode so the user can navigate immediately
+	m.sidebarFocused = true
 	m.sidebarCursor = m.activeIdx
 	if m.sidebarCursor < 0 {
 		m.sidebarCursor = 0
