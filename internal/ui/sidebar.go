@@ -9,7 +9,7 @@ import (
 	"claudetop/internal/session"
 )
 
-const sidebarWidth = 22
+const sidebarWidth = 26
 
 var (
 	sidebarStyle = lipgloss.NewStyle().
@@ -70,17 +70,31 @@ func statusDot(s *session.Session, tick int) string {
 	}
 }
 
-func renderSessionLine(s *session.Session, idx, activeIdx, tick int) string {
-	name := s.DisplayName()
+func renderSessionLine(s *session.Session, idx, activeIdx, cursorIdx, tick int) string {
+	// Dead sessions need more room for the "[dead]" suffix.
 	maxName := sidebarWidth - 5
+	if s.Dead {
+		maxName = sidebarWidth - 12
+	}
+	if maxName < 1 {
+		maxName = 1
+	}
+
+	name := s.DisplayName()
 	if len([]rune(name)) > maxName {
 		runes := []rune(name)
 		name = string(runes[:maxName-1]) + "…"
 	}
 
+	// ▶ marks the session currently shown in the viewport when the cursor is elsewhere.
+	prefix := " "
+	if idx == activeIdx && idx != cursorIdx {
+		prefix = "▶"
+	}
+
 	var line string
 	if s.Dead {
-		line = fmt.Sprintf(" %d ✗ %s [dead]", idx+1, name)
+		line = fmt.Sprintf("%s%d ✗ %s [dead]", prefix, idx+1, name)
 	} else {
 		var dot string
 		if s.Parked {
@@ -88,11 +102,11 @@ func renderSessionLine(s *session.Session, idx, activeIdx, tick int) string {
 		} else {
 			dot = statusDot(s, tick)
 		}
-		line = fmt.Sprintf(" %d %s %s", idx+1, dot, name)
+		line = fmt.Sprintf("%s%d %s %s", prefix, idx+1, dot, name)
 	}
 
 	style := sidebarItemStyle.Width(sidebarWidth)
-	if idx == activeIdx {
+	if idx == cursorIdx {
 		style = sidebarActiveStyle.Width(sidebarWidth)
 	}
 	if s.Dead {
@@ -107,7 +121,7 @@ func renderSessionLine(s *session.Session, idx, activeIdx, tick int) string {
 // renderSidebar renders the session list sidebar.
 // activeIdx is the currently focused session (-1 if none).
 // tick is the animation counter for the working spinner.
-func renderSidebar(sessions []*session.Session, activeIdx int, height int, tick int, focused bool) string {
+func renderSidebar(sessions []*session.Session, activeIdx, cursorIdx, height, tick int, focused bool) string {
 	var lines []string
 
 	headerStyle := sidebarHeaderStyle
@@ -126,24 +140,22 @@ func renderSidebar(sessions []*session.Session, activeIdx int, height int, tick 
 	}
 
 	lines = append(lines, headerStyle.Width(sidebarWidth).Render("ACTIVE"))
-	lines = append(lines, sidebarStyle.Render(""))
 
 	if len(activeIndices) == 0 {
 		lines = append(lines, sidebarItemStyle.Width(sidebarWidth).Render("  (none)"))
 		lines = append(lines, sidebarItemStyle.Width(sidebarWidth).Render("  n: new session"))
 	} else {
 		for _, origIdx := range activeIndices {
-			lines = append(lines, renderSessionLine(sessions[origIdx], origIdx, activeIdx, tick))
+			lines = append(lines, renderSessionLine(sessions[origIdx], origIdx, activeIdx, cursorIdx, tick))
 		}
 	}
 
 	if len(parkedIndices) > 0 {
 		lines = append(lines, sidebarStyle.Width(sidebarWidth).Render(""))
 		lines = append(lines, headerStyle.Width(sidebarWidth).Render("PARKED"))
-		lines = append(lines, sidebarStyle.Render(""))
 		for _, origIdx := range parkedIndices {
 			s := sessions[origIdx]
-			lines = append(lines, renderSessionLine(s, origIdx, activeIdx, tick))
+			lines = append(lines, renderSessionLine(s, origIdx, activeIdx, cursorIdx, tick))
 			if s.ParkNote != "" {
 				note := "   \"" + s.ParkNote + "\""
 				maxNote := sidebarWidth - 2
@@ -154,14 +166,6 @@ func renderSidebar(sessions []*session.Session, activeIdx int, height int, tick 
 				lines = append(lines, parkedNoteStyle.Width(sidebarWidth).Render(note))
 			}
 		}
-	}
-
-	// Footer hint
-	lines = append(lines, sidebarStyle.Width(sidebarWidth).Render(""))
-	if focused {
-		lines = append(lines, sidebarFocusedHeaderStyle.Width(sidebarWidth).Render(" n new  x close  p park"))
-	} else {
-		lines = append(lines, sidebarItemStyle.Width(sidebarWidth).Render(" Tab: focus sidebar"))
 	}
 
 	// Pad to fill height

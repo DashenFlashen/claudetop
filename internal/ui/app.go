@@ -70,6 +70,7 @@ type Model struct {
 	sessions []*session.Session
 
 	activeIdx      int
+	sidebarCursor  int  // navigation cursor in sidebar (may differ from activeIdx)
 	sidebarOpen    bool
 	sidebarFocused bool // true = sidebar has keyboard focus
 	overlay        overlay
@@ -107,6 +108,10 @@ func New(cfg *config.Config, st *state.State) *Model {
 	}
 	// Start in sidebar mode if no live sessions
 	m.sidebarFocused = m.activeIdx < 0
+	m.sidebarCursor = m.activeIdx
+	if m.sidebarCursor < 0 {
+		m.sidebarCursor = 0
+	}
 	return m
 }
 
@@ -186,6 +191,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.store.Sessions = m.sessions
 		m.saveState()
 		m.switchSession(len(m.sessions) - 1)
+		m.sidebarCursor = len(m.sessions) - 1
 		m.sidebarFocused = false
 
 		var cmds []tea.Cmd
@@ -236,6 +242,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// activeIdx may have changed; reload viewport with correct session
 					m.loadSession(m.activeIdx)
 				}
+				// Clamp cursor to valid range after removal
+				if m.sidebarCursor >= len(m.sessions) {
+					m.sidebarCursor = len(m.sessions) - 1
+				}
+				if m.sidebarCursor < 0 {
+					m.sidebarCursor = 0
+				}
 				break
 			}
 		}
@@ -272,12 +285,26 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePromptEditorKey(msg)
 	}
 
-	// Tab: always switch sidebar focus when no overlay is open
+	// Tab: toggle sidebar focus. Entering syncs cursor to active session;
+	// leaving confirms the cursor selection.
 	if msg.Type == tea.KeyTab {
-		m.sidebarFocused = !m.sidebarFocused
-		if m.sidebarFocused && !m.sidebarOpen {
-			m.sidebarOpen = true
-			m.resizeViewport()
+		if m.sidebarFocused {
+			// Confirm cursor selection and return to session
+			if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+				m.switchSession(m.sidebarCursor)
+			}
+			m.sidebarFocused = false
+		} else {
+			// Enter sidebar: place cursor on currently active session
+			m.sidebarCursor = m.activeIdx
+			if m.sidebarCursor < 0 {
+				m.sidebarCursor = 0
+			}
+			m.sidebarFocused = true
+			if !m.sidebarOpen {
+				m.sidebarOpen = true
+				m.resizeViewport()
+			}
 		}
 		return m, nil
 	}
@@ -308,9 +335,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
+		// Confirm cursor selection and return to session
+		if m.sidebarCursor >= 0 && m.sidebarCursor < len(m.sessions) {
+			m.switchSession(m.sidebarCursor)
+		}
 		m.sidebarFocused = false
 		return m, nil
 	case tea.KeyEsc:
+		// Cancel: return to session without changing active session
 		m.sidebarFocused = false
 		return m, nil
 	case tea.KeyUp:
@@ -330,7 +362,10 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(m.sessions) {
 			m.switchSession(idx)
+			m.sidebarCursor = idx
+			m.sidebarFocused = false
 		}
+		return m, nil
 	case "n":
 		m.overlay = overlayNewSession
 		m.nameInput = newSessionInput()
@@ -558,13 +593,13 @@ func (m *Model) navigateSidebar(dir int) {
 	if len(m.sessions) == 0 {
 		return
 	}
-	next := m.activeIdx + dir
+	next := m.sidebarCursor + dir
 	if next < 0 {
 		next = len(m.sessions) - 1
 	} else if next >= len(m.sessions) {
 		next = 0
 	}
-	m.switchSession(next)
+	m.sidebarCursor = next
 }
 
 func (m *Model) loadSession(idx int) {
@@ -578,7 +613,7 @@ func (m *Model) loadSession(idx int) {
 func (m *Model) resizeViewport() {
 	vpWidth := m.width
 	if m.sidebarOpen {
-		vpWidth -= sidebarWidth + 1 // +1 for separator column
+		vpWidth -= sidebarWidth + 2 // +1 for left border, +1 for separator column
 	}
 	vpHeight := m.height - 2 // status bar (1) + hint line (1)
 	if vpWidth < 1 {
@@ -655,7 +690,17 @@ func (m *Model) View() string {
 
 	var mainContent string
 	if m.sidebarOpen {
-		sidebar := renderSidebar(m.sessions, m.activeIdx, mainHeight, m.tick, m.sidebarFocused)
+		sidebar := renderSidebar(m.sessions, m.activeIdx, m.sidebarCursor, mainHeight, m.tick, m.sidebarFocused)
+		// Left border: always present, cyan when sidebar is focused
+		borderColor := lipgloss.Color("238")
+		if m.sidebarFocused {
+			borderColor = lipgloss.Color("39")
+		}
+		sidebar = lipgloss.NewStyle().
+			Border(lipgloss.ThickBorder(), false, false, false, true).
+			BorderForeground(borderColor).
+			BorderBackground(lipgloss.Color("236")).
+			Render(sidebar)
 		// Separator column
 		sep := ""
 		for i := 0; i < mainHeight; i++ {
@@ -675,9 +720,9 @@ func (m *Model) View() string {
 		Background(lipgloss.Color("0"))
 	var hintText string
 	if m.sidebarFocused {
-		hintText = " Tab: session   j/k navigate   n new   x close   q quit   \\ hide sidebar"
+		hintText = " Esc: cancel   j/k ↑↓: navigate   Enter/Tab: select   n new   x close   ? help"
 	} else {
-		hintText = " Tab: sidebar   \\ toggle   (all keys → Claude Code)"
+		hintText = " Tab: open sidebar   \\ toggle   (all keys → Claude Code)"
 	}
 	hint := hintStyle.Width(m.width).Render(hintText)
 
