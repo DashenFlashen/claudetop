@@ -355,11 +355,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.briefingCommitsLoading = false
 		if msg.err == nil {
 			m.briefingCommits = msg.commits
+		} else {
+			m.setStatusMsg("Git scan failed: " + msg.err.Error())
 		}
 		return m, nil
 
 	case briefingStandupMsg:
 		m.briefingStandupRunning = false
+		m.briefingScrollOffset = 0
 		if msg.err != nil {
 			m.briefingStandupOutput = "Error: " + msg.err.Error()
 		} else {
@@ -504,6 +507,8 @@ func (m *Model) handleBriefingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runBriefingStandup()
 		}
 	case "b":
+		m.store.LastBriefingDate = time.Now().Format("2006-01-02")
+		m.saveState()
 		m.inboxCursor = 0
 		m.overlay = overlayInbox
 	}

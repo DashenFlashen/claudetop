@@ -103,8 +103,9 @@ func renderBriefing(
 		}
 		for _, c := range shown {
 			line := fmt.Sprintf("%-20s · %s", c.Repo, c.Message)
-			if len(line) > width-6 {
-				line = line[:width-9] + "..."
+			if len([]rune(line)) > width-6 {
+				runes := []rune(line)
+				line = string(runes[:width-9]) + "..."
 			}
 			lines = append(lines, briefingTextStyle.Width(width).Render(line))
 		}
