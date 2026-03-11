@@ -456,15 +456,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-
 func (m *Model) handleBriefingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.briefingPrioritiesFocused {
 		switch msg.Type {
 		case tea.KeyEnter:
 			text := strings.TrimSpace(m.briefingPrioritiesInput.Value())
 			if text != "" {
-				if _, err := briefing.WritePriorities(text); err != nil {
+				if path, err := briefing.WritePriorities(text); err != nil {
 					m.setStatusMsg("Error: " + err.Error())
+				} else {
+					m.setStatusMsg("Priorities saved to " + path)
 				}
 			}
 			m.closeBriefing()
