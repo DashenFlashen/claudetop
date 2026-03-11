@@ -13,7 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"claudetop/internal/briefing"
 	"claudetop/internal/config"
+	"claudetop/internal/git"
 	"claudetop/internal/session"
 	"claudetop/internal/state"
 	"claudetop/internal/tmux"
@@ -63,6 +65,16 @@ type pendingInboxSend struct {
 	sendAt    time.Time
 }
 
+type gitCommitsMsg struct {
+	commits []git.CommitSummary
+	err     error
+}
+
+type briefingStandupMsg struct {
+	output string
+	err    error
+}
+
 // overlay represents which (if any) overlay is currently shown.
 type overlay int
 
@@ -109,6 +121,15 @@ type Model struct {
 
 	pendingInboxSend *pendingInboxSend
 
+	showBriefing              bool
+	briefingScrollOffset      int
+	briefingCommits           []git.CommitSummary
+	briefingCommitsLoading    bool
+	briefingStandupOutput     string
+	briefingStandupRunning    bool
+	briefingPrioritiesInput   textinput.Model
+	briefingPrioritiesFocused bool
+
 	width  int
 	height int
 }
@@ -136,11 +157,21 @@ func New(cfg *config.Config, st *state.State) *Model {
 	if m.sidebarCursor < 0 {
 		m.sidebarCursor = 0
 	}
+	today := time.Now().Format("2006-01-02")
+	if cfg.General.AutoBriefing && st.LastBriefingDate != today {
+		m.showBriefing = true
+		m.briefingCommitsLoading = true
+		m.briefingPrioritiesInput = newBriefingPrioritiesInput()
+	}
 	return m
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tickCmd()
+	cmds := []tea.Cmd{tickCmd()}
+	if m.showBriefing {
+		cmds = append(cmds, fetchGitCommitsCmd(m.cfg.General.RootDir))
+	}
+	return tea.Batch(cmds...)
 }
 
 func tickCmd() tea.Cmd {
@@ -320,6 +351,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case gitCommitsMsg:
+		m.briefingCommitsLoading = false
+		if msg.err == nil {
+			m.briefingCommits = msg.commits
+		}
+		return m, nil
+
+	case briefingStandupMsg:
+		m.briefingStandupRunning = false
+		if msg.err != nil {
+			m.briefingStandupOutput = "Error: " + msg.err.Error()
+		} else {
+			m.briefingStandupOutput = msg.output
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -349,6 +396,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCaptureKey(msg)
 	case overlayInbox:
 		return m.handleInboxKey(msg)
+	}
+
+	// Briefing mode (when no overlay is active)
+	if m.showBriefing {
+		return m.handleBriefingKey(msg)
 	}
 
 	// Tab: toggle sidebar focus. Entering syncs cursor to active session;
@@ -404,6 +456,93 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+
+func (m *Model) handleBriefingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.briefingPrioritiesFocused {
+		switch msg.Type {
+		case tea.KeyEnter:
+			text := strings.TrimSpace(m.briefingPrioritiesInput.Value())
+			if text != "" {
+				if _, err := briefing.WritePriorities(text); err != nil {
+					m.setStatusMsg("Error: " + err.Error())
+				}
+			}
+			m.closeBriefing()
+			return m, nil
+		case tea.KeyEsc:
+			m.briefingPrioritiesFocused = false
+			m.briefingPrioritiesInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.briefingPrioritiesInput, cmd = m.briefingPrioritiesInput.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.closeBriefing()
+		return m, nil
+	case tea.KeyTab:
+		m.briefingPrioritiesFocused = true
+		m.briefingPrioritiesInput.Focus()
+		return m, textinput.Blink
+	}
+
+	switch msg.String() {
+	case "j":
+		m.briefingScrollOffset++
+	case "k":
+		if m.briefingScrollOffset > 0 {
+			m.briefingScrollOffset--
+		}
+	case "s":
+		if !m.briefingStandupRunning {
+			m.briefingStandupRunning = true
+			m.briefingStandupOutput = ""
+			return m, m.runBriefingStandup()
+		}
+	case "b":
+		m.inboxCursor = 0
+		m.overlay = overlayInbox
+	}
+	return m, nil
+}
+
+func (m *Model) closeBriefing() {
+	m.showBriefing = false
+	today := time.Now().Format("2006-01-02")
+	m.store.LastBriefingDate = today
+	m.saveState()
+}
+
+func (m *Model) runBriefingStandup() tea.Cmd {
+	// Find the first skill with "standup" in the name (case-insensitive)
+	var sk *config.SkillConfig
+	for i := range m.cfg.Skills {
+		if strings.Contains(strings.ToLower(m.cfg.Skills[i].Name), "standup") {
+			sk = &m.cfg.Skills[i]
+			break
+		}
+	}
+	if sk == nil {
+		return func() tea.Msg {
+			return briefingStandupMsg{err: fmt.Errorf("no standup skill configured (add a skill with 'standup' in the name)")}
+		}
+	}
+	command := sk.Command
+	rootDir := m.cfg.General.RootDir
+	return func() tea.Msg {
+		parts := strings.Fields(command)
+		if len(parts) == 0 {
+			return briefingStandupMsg{err: fmt.Errorf("empty standup skill command")}
+		}
+		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Dir = rootDir
+		out, err := cmd.CombinedOutput()
+		return briefingStandupMsg{output: string(out), err: err}
+	}
+}
 
 func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
@@ -800,6 +939,13 @@ func runSkillOutput(sk config.SkillConfig, rootDir string) tea.Cmd {
 	}
 }
 
+func fetchGitCommitsCmd(rootDir string) tea.Cmd {
+	return func() tea.Msg {
+		commits, err := git.YesterdayCommits(rootDir)
+		return gitCommitsMsg{commits: commits, err: err}
+	}
+}
+
 // autoNameFromContent calls claude -p to summarize the pane content into a short session name.
 // Returns nil on any failure — auto-naming is best-effort.
 // Pane content is truncated to stay within OS argument length limits.
@@ -931,6 +1077,23 @@ func (m *Model) uniqueName(name string) string {
 func (m *Model) View() string {
 	if m.width == 0 {
 		return ""
+	}
+
+	// Briefing takes the full screen when active (overlays may still appear on top)
+	if m.showBriefing && m.overlay == overlayNone {
+		parked := make([]*session.Session, 0)
+		for _, s := range m.sessions {
+			if s.Parked {
+				parked = append(parked, s)
+			}
+		}
+		return renderBriefing(
+			m.briefingCommits, m.briefingCommitsLoading,
+			m.store.InboxItems, parked,
+			m.briefingStandupOutput, m.briefingStandupRunning,
+			m.briefingPrioritiesInput, m.briefingPrioritiesFocused,
+			m.briefingScrollOffset, m.width, m.height, m.tick,
+		)
 	}
 
 	// Overlays take the full screen
