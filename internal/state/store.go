@@ -33,8 +33,9 @@ func NewInboxItem(content, source string) *InboxItem {
 
 // State is the persisted application state.
 type State struct {
-	Sessions   []*session.Session `json:"sessions"`
-	InboxItems []*InboxItem       `json:"inbox_items,omitempty"`
+	Sessions         []*session.Session `json:"sessions"`
+	InboxItems       []*InboxItem       `json:"inbox_items,omitempty"`
+	LastBriefingDate string             `json:"last_briefing_date,omitempty"`
 }
 
 func path() (string, error) {

@@ -96,6 +96,28 @@ func TestLoadEmptyInboxWhenMissing(t *testing.T) {
 	}
 }
 
+func TestLastBriefingDatePersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	s := &State{
+		Sessions:         []*session.Session{},
+		InboxItems:       []*InboxItem{},
+		LastBriefingDate: "2026-03-11",
+	}
+	if err := Save(s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.LastBriefingDate != "2026-03-11" {
+		t.Errorf("got %q, want %q", loaded.LastBriefingDate, "2026-03-11")
+	}
+}
+
 func TestSaveAndLoadParkedSession(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

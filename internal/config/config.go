@@ -15,7 +15,8 @@ type Config struct {
 }
 
 type GeneralConfig struct {
-	RootDir string `toml:"root_dir"`
+	RootDir      string `toml:"root_dir"`
+	AutoBriefing bool   `toml:"auto_briefing"`
 }
 
 // SkillConfig defines a quick-launch skill accessible from the sidebar.
@@ -56,7 +57,8 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		General: GeneralConfig{
-			RootDir: filepath.Dir(dir), // home is parent of ~/.claudetop
+			RootDir:      filepath.Dir(dir), // home is parent of ~/.claudetop
+			AutoBriefing: true,
 		},
 	}
 
