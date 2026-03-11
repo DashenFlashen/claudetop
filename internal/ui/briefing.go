@@ -13,6 +13,8 @@ import (
 	"claudetop/internal/state"
 )
 
+var briefingSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 var (
 	briefingBg = lipgloss.Color("232")
 
@@ -90,8 +92,7 @@ func renderBriefing(
 	lines = append(lines, briefingSectionStyle.Width(width).Render("YESTERDAY"))
 	lines = append(lines, briefingDividerStyle.Width(width).Render(strings.Repeat("─", width-4)))
 	if commitsLoading {
-		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		lines = append(lines, briefingDimStyle.Width(width).Render(frames[tick%len(frames)]+"  Scanning repos..."))
+		lines = append(lines, briefingDimStyle.Width(width).Render(briefingSpinnerFrames[tick%len(briefingSpinnerFrames)]+"  Scanning repos..."))
 	} else if len(commits) == 0 {
 		lines = append(lines, briefingDimStyle.Width(width).Render("(no commits yesterday)"))
 	} else {
@@ -167,8 +168,7 @@ func renderBriefing(
 	lines = append(lines, briefingSectionStyle.Width(width).Render(header))
 	lines = append(lines, briefingDividerStyle.Width(width).Render(strings.Repeat("─", width-4)))
 	if standupRunning {
-		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		lines = append(lines, briefingDimStyle.Width(width).Render(frames[tick%len(frames)]+"  Generating standup draft..."))
+		lines = append(lines, briefingDimStyle.Width(width).Render(briefingSpinnerFrames[tick%len(briefingSpinnerFrames)]+"  Generating standup draft..."))
 	} else if standupOutput == "" {
 		lines = append(lines, briefingDimStyle.Width(width).Render("(not yet generated)"))
 	} else {
@@ -201,7 +201,11 @@ func renderBriefing(
 	// Bottom section (fixed, always visible)
 	divider := briefingDividerLineStyle.Width(width).Render(strings.Repeat("─", width))
 	label := briefingPriorityLabelStyle.Width(width).Render("TODAY'S PRIORITIES")
-	inputLine := briefingInputStyle.Width(width).Render("> " + prioritiesInput.View())
+	inputPrefix := lipgloss.NewStyle().Background(briefingBg).Foreground(lipgloss.Color("240")).Render("> ")
+	if prioritiesFocused {
+		inputPrefix = lipgloss.NewStyle().Background(briefingBg).Foreground(lipgloss.Color("220")).Bold(true).Render("> ")
+	}
+	inputLine := briefingInputStyle.Width(width).Render(inputPrefix + prioritiesInput.View())
 	hint := "Tab: focus · Enter: save · Esc: skip · j/k: scroll · s: standup · b: inbox"
 	hintLine := briefingHintStyle.Width(width).Render(hint)
 
