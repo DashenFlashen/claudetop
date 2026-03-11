@@ -17,6 +17,9 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	if cfg.General.RootDir != tmp {
 		t.Errorf("expected RootDir=%q, got %q", tmp, cfg.General.RootDir)
 	}
+	if !cfg.General.AutoBriefing {
+		t.Error("expected AutoBriefing=true by default")
+	}
 }
 
 func TestLoadFromFile(t *testing.T) {
