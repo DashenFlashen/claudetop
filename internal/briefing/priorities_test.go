@@ -48,9 +48,18 @@ func TestWritePrioritiesEmptyLinesSkipped(t *testing.T) {
 		t.Fatalf("WritePriorities: %v", err)
 	}
 
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	content := string(data)
-	if strings.Contains(content, "2. ") && !strings.Contains(content, "2. item two") {
-		t.Errorf("empty item should be skipped: %s", content)
+	if !strings.Contains(content, "1. item one") {
+		t.Errorf("expected '1. item one' in output: %s", content)
+	}
+	if !strings.Contains(content, "2. item two") {
+		t.Errorf("expected '2. item two' in output (empty item should be skipped): %s", content)
+	}
+	if strings.Contains(content, "3. ") {
+		t.Errorf("expected only 2 items, found a 3rd: %s", content)
 	}
 }
