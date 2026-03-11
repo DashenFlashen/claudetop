@@ -34,7 +34,6 @@ func ReposUnder(rootDir string) ([]string, error) {
 }
 
 // ParseGitLog parses the output of `git log --format=%s` for the given repo name.
-// Exported so it can be tested in isolation.
 func ParseGitLog(output, repoName string) []CommitSummary {
 	var commits []CommitSummary
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
