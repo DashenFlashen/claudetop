@@ -628,6 +628,15 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "b":
 		m.inboxCursor = 0
 		m.overlay = overlayInbox
+	case "B":
+		m.showBriefing = true
+		m.briefingScrollOffset = 0
+		m.briefingStandupOutput = ""
+		m.briefingStandupRunning = false
+		m.briefingCommitsLoading = true
+		m.briefingPrioritiesInput = newBriefingPrioritiesInput()
+		m.briefingPrioritiesFocused = false
+		return m, fetchGitCommitsCmd(m.cfg.General.RootDir)
 	case "e":
 		return m, m.openEditor()
 	default:
