@@ -631,6 +631,7 @@ func (m *Model) handleSidebarKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "B":
 		m.showBriefing = true
 		m.briefingScrollOffset = 0
+		m.briefingCommits = nil
 		m.briefingStandupOutput = ""
 		m.briefingStandupRunning = false
 		m.briefingCommitsLoading = true
